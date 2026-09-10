@@ -1,4 +1,5 @@
-setdir output
+set outputdir output
+setdir $outputdir
 set fileformat png
 setinteraction 0
 logfile temporal.log
@@ -6,8 +7,8 @@ clearlog
 logGLInfo true
 resize 512 512
 
+# volname-level-method-lighting-rate-vmethod-subdiv-transforms-axis[-r]
 repeat 9 as volume
-    setLevel 0
     settranslation 0 0 0
     resetrotation
     if $volume == 0
@@ -77,199 +78,125 @@ repeat 9 as volume
         setbackground 0 0 1 1
     endif
     log Volume $volume
-    repeat 2 as lighting
-        if $lighting == 0
-            log unlit pass
-            set lit n
-        else
-            log lighting pass
-            set lit l
-            setLevel 0
-            settranslation 0 0 0
-            resetrotation
-            if $volume == 0
-                settfparams false 0.097 0.156
-            endif
-            if $volume == 1
-                settfparams false 0.218 0.142
-            endif
-            if $volume == 2
-                #http://www.cgvis.de/vs/?dataset=7&method=59&const=0&ortho=0&vs=10&sr=1&tfType=2&tfStart=0.02&tfWidth=0.003&alpha=0.9900000095367432&level=0&transform=-0.202214763_0.978688002_-0.0357658304_0_-0.202166244_-0.00598103832_0.979332626_0_0.958247483_0.205267921_0.199067056_0_0_0_0_1%7E0_0_1.50000024&tfEncoding=UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
-                settfcode UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
-            endif
-            if $volume == 3
-                # http://www.cgvis.de/vs/?dataset=7&method=7&const=0&ortho=0&vs=10&sr=0&tfType=2&tfStart=0.02&tfWidth=0.003&alpha=0.9900000095367432&level=0&transform=-0.969087362_0.246711731_0.00148320443_0_-0.012833355_-0.0564099029_0.998324871_0_0.246383488_0.96744591_0.0578331985_0_0_0_0_1%7E0_0_0.800000072&tfEncoding=UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
-                settfcode UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
-            endif
-            if $volume == 4
-                settfparams true 0.075 0.01
-            endif
-            if $volume == 5
-                # http://www.cgvis.de/vs/?dataset=4&method=46&const=0&ortho=1&vs=1&sr=0&tfType=0&tfStart=0.213&tfWidth=0.005&alpha=0.9900000095367432&level=0&transform=0.803756475_-0.590385795_-0.0736123994_0_0.464429945_0.699930787_-0.542587698_0_0.371860117_0.401920915_0.836767256_0_0_0_0_1%7E0_0_0.700000048
-                settfparams false 0.213 0.005
-            endif
-            if $volume == 6
-                settfcode UkxFRgAEAAAAAAAANwAV__8AGgAL__8AOAAZ_30ACv8hAAMgAR0BEgEBCgABATYADf9EAA
-            endif
-            if $volume == 7
-                settfparams true 0.397 0.006
-            endif
-            if $volume == 8
-                settfparams false 0.397 0.006
-            endif
-        endif
-        repeat 3 as l
-            setLevel $l
-            log Level $l
-            repeat 6 as tmethod
-                set m $tmethod * 13
-                if $tmethod == 0
-                    set tname lin
+    repeat 3 as l
+        setLevel $l
+        log Level $l
+        repeat 2 as lighting
+            if $lighting == 0
+                log unlit pass
+                set lit n
+            else
+                log lighting pass
+                set lit l
+                settranslation 0 0 0
+                resetrotation
+                if $volume == 0
+                    settfparams false 0.097 0.156
                 endif
-                if $tmethod == 1
-                    set tname quadB
+                if $volume == 1
+                    settfparams false 0.218 0.142
                 endif
-                if $tmethod == 2
-                    set tname quadBf
+                if $volume == 2
+                    #http://www.cgvis.de/vs/?dataset=7&method=59&const=0&ortho=0&vs=10&sr=1&tfType=2&tfStart=0.02&tfWidth=0.003&alpha=0.9900000095367432&level=0&transform=-0.202214763_0.978688002_-0.0357658304_0_-0.202166244_-0.00598103832_0.979332626_0_0.958247483_0.205267921_0.199067056_0_0_0_0_1%7E0_0_1.50000024&tfEncoding=UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
+                    settfcode UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
                 endif
-                if $tmethod == 3
-                    set tname cubicB
+                if $volume == 3
+                    # http://www.cgvis.de/vs/?dataset=7&method=7&const=0&ortho=0&vs=10&sr=0&tfType=2&tfStart=0.02&tfWidth=0.003&alpha=0.9900000095367432&level=0&transform=-0.969087362_0.246711731_0.00148320443_0_-0.012833355_-0.0564099029_0.998324871_0_0.246383488_0.96744591_0.0578331985_0_0_0_0_1%7E0_0_0.800000072&tfEncoding=UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
+                    settfcode UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
                 endif
-                if $tmethod == 4
-                    set tname cubicBf
+                if $volume == 4
+                    settfparams true 0.075 0.01
                 endif
-                if $tmethod == 5
-                    set tname cr
+                if $volume == 5
+                    # http://www.cgvis.de/vs/?dataset=4&method=46&const=0&ortho=1&vs=1&sr=0&tfType=0&tfStart=0.213&tfWidth=0.005&alpha=0.9900000095367432&level=0&transform=0.803756475_-0.590385795_-0.0736123994_0_0.464429945_0.699930787_-0.542587698_0_0.371860117_0.401920915_0.836767256_0_0_0_0_1%7E0_0_0.700000048
+                    settfparams false 0.213 0.005
                 endif
-                if $lighting == 1
-                    set m $m + 7
+                if $volume == 6
+                    settfcode UkxFRgAEAAAAAAAANwAV__8AGgAL__8AOAAZ_30ACv8hAAMgAR0BEgEBCgABATYADf9EAA
                 endif
-                setmethod $m
-                log Method $m
-                repeat 5 as rateIter
-                    if $rateIter == 0
-                        set rate 1
+                if $volume == 7
+                    settfparams true 0.397 0.006
+                endif
+                if $volume == 8
+                    settfparams false 0.397 0.006
+                endif
+            endif
+            repeat 6 as x
+                if $x == 0
+                    set method lin
+                endif
+                if $x == 1
+                    set method quadB
+                endif
+                if $x == 2
+                    set method quadBf
+                endif
+                if $x == 3
+                    set method cubicB
+                endif
+                if $x == 4
+                    set method cubicBf
+                endif
+                if $x == 5
+                    set method cr
+                endif
+                repeat 5 as y
+                    if $y == 0
+                        set vmethod n
+                        set m $x * 13 + $lighting * 7 + $y
+                        set rateTotal 4
                     else
-                        set rate $rateIter * 5
+                        if $y == 1
+                            set vmethod linvs
+                        endif
+                        if $y == 2
+                            set vmethod crvs
+                        endif
+                        if $y == 3
+                            set vmethod hermvs
+                        endif
+                        if $y == 4
+                            set vmethod monhermvs
+                        endif
+                        if $lighting == 0
+                            set m $x * 13 + $lighting * 7 + $y + 2
+                        else
+                            set m $x * 13 + $lighting * 7 + $y + 1
+                        endif
+                        set rateTotal 3
                     endif
-                    setrate $rate
-                    log Rate $rate
-                    set dirname $volname-$l-$tname-$lit-$rate-n-0
-                    repeat 5 as transform
-                        settranslation 0 0 0
-                        resetrotation
-                        if $volume == 0
-                            addrotationx -90
-                            addrotationy 180
-                            setuseortho true
+                    setmethod $m
+                    log Method $m
+                    repeat $rateTotal as rateIter
+                        if $y == 0
+                            if $rateIter == 0
+                                set rate 1
+                            endif
+                            if $rateIter == 1
+                                set rate 5
+                            endif
+                            if $rateIter == 2
+                                set rate 8
+                            endif
+                            if $rateIter == 3
+                                set rate 10
+                            endif
+                            setrate $rate
+                            log Rate $rate
+                            set subdiv 0
+                        else
+                            set rate 1
+                            setrate $rate
+                            if $rateIter == 0
+                                set subdiv 1
+                            else
+                                set subdiv $rateIter * 6
+                            endif
+                            setsubdiv $subdiv
+                            log Subdiv $subdiv
                         endif
-                        if $volume == 1
-                            addrotationx -90
-                            addrotationy -90
-                            setuseortho true
-                        endif
-                        if $volume == 2
-                            settransformparams -0.202214763_0.978688002_-0.0357658304_0_-0.202166244_-0.00598103832_0.979332626_0_0.958247483_0.205267921_0.199067056_0_0_0_0_1~0_0_1.50000024
-                            setuseortho false
-                        endif
-                        if $volume == 3
-                            settransformparams -0.969087362_0.246711731_0.00148320443_0_-0.012833355_-0.0564099029_0.998324871_0_0.246383488_0.96744591_0.0578331985_0_0_0_0_1~0_0_0.800000072
-                            setuseortho false
-                        endif
-                        if $volume == 4
-                            addrotationy 90
-                            setuseortho true
-                        endif
-                        if $volume == 5
-                            addrotationy 90
-                            setuseortho true
-                        endif
-                        if $volume == 6
-                            settransformparams -0.94459784_-0.268845826_-0.18829757_0_-0.200813919_0.927143097_-0.316352993_0_0.259629518_-0.261014193_-0.929764926_0_0_0_0_1~0_0_0.100000016
-                            setuseortho false
-                        endif
-                        if $volume == 7
-                            settransformparams 0.84378463_-0.535941601_0.0281707458_0_0.262970418_0.458637923_0.848821521_0_-0.467838824_-0.708814919_0.527927518_0_0_0_0_1~0_0_0
-                            setuseortho false
-                        endif
-                        if $volume == 8
-                            settransformparams 0.84378463_-0.535941601_0.0281707458_0_0.262970418_0.458637923_0.848821521_0_-0.467838824_-0.708814919_0.527927518_0_0_0_0_1~0_0_0
-                            setuseortho false
-                        endif
-                        if $transform == 0
-                            setdir output/rotationy/$dirname
-                            repeat 120 as r
-                                screenshot $dirname-$r.$fileformat
-                                addrotationy 3
-                            endrepeat
-                            setdir output
-                        endif
-                        if $transform == 1
-                            setdir output/rotationdiagonal/$dirname
-                            repeat 120 as r
-                                screenshot $dirname-$r.$fileformat
-                                addrotationaxis 0.57735027 0.57735027 0.57735027 3
-                            endrepeat
-                            setdir output
-                        endif
-                        if $transform == 2
-                            setdir output/translationx/$dirname
-                            addtranslation -0.5 0 0
-                            repeat 100 as r
-                                screenshot $dirname-$r.$fileformat
-                                addtranslation 0.01 0 0
-                            endrepeat
-                            setdir output
-                        endif
-                        if $transform == 3
-                            setdir output/translationy/$dirname
-                            addtranslation 0 0.5 0
-                            repeat 100 as r
-                                screenshot $dirname-$r.$fileformat
-                                addtranslation 0 -0.01 0
-                            endrepeat
-                            setdir output
-                        endif
-                        if $transform == 4
-                            setdir output/zoom/$dirname
-                            setuseortho false
-                            addtranslation 0 0 0.5
-                            repeat 100 as r
-                                screenshot $dirname-$r.$fileformat
-                                addtranslation 0 0 -0.01
-                            endrepeat
-                            setdir output
-                        endif
-                    endrepeat
-                endrepeat
-                setrate 1
-                if $lighting == 0
-                    set m $m + 3
-                else
-                    set m $m + 2
-                endif
-                repeat 4 as vmethod
-                    set vm $m + $vmethod
-                    setmethod $vm
-                    log Virtual Method $vm
-                    if $vmethod == 0
-                        set vname linvs
-                    endif
-                    if $vmethod == 1
-                        set vname crvs
-                    endif
-                    if $vmethod == 2
-                        set vname hermvs
-                    endif
-                    if $vmethod == 3
-                        set vname monhermvs
-                    endif
-                    repeat 20 as vs
-                        set subdiv $vs + 1
-                        setsubdiv $subdiv
-                        log Subdiv $subdiv
-                        set dirname $volname-$l-$tname-$lit-1-$vname-$subdiv
-                        repeat 5 as transform
+                        set dirname $volname-$l-$method-$lit-$rate-$vmethod-$subdiv
+                        repeat 6 as transform
                             settranslation 0 0 0
                             resetrotation
                             if $volume == 0
@@ -311,49 +238,65 @@ repeat 9 as volume
                                 setuseortho false
                             endif
                             if $transform == 0
-                                setdir output/rotationy/$dirname
+                                set seqname $dirname-rot-x
+                                log $seqname
+                                setdir $outputdir/$seqname
                                 repeat 120 as r
-                                    screenshot $dirname-$r.$fileformat
-                                    addrotationy 3
+                                    screenshot $seqname-$r.$fileformat
+                                    addrotationx 3
                                 endrepeat
-                                setdir output
                             endif
                             if $transform == 1
-                                setdir output/rotationdiagonal/$dirname
+                                set seqname $dirname-rot-y
+                                log $seqname
+                                setdir $outputdir/$seqname
                                 repeat 120 as r
-                                    screenshot $dirname-$r.$fileformat
-                                    addrotationaxis 0.57735027 0.57735027 0.57735027 3
+                                    screenshot $seqname-$r.$fileformat
+                                    addrotationy 3
                                 endrepeat
-                                setdir output
                             endif
                             if $transform == 2
-                                setdir output/translationx/$dirname
-                                addtranslation -0.5 0 0
-                                repeat 100 as r
-                                    screenshot $dirname-$r.$fileformat
-                                    addtranslation 0.01 0 0
+                                set seqname $dirname-rot-diag
+                                log $seqname
+                                setdir $outputdir/$seqname
+                                repeat 120 as r
+                                    screenshot $seqname-$r.$fileformat
+                                    addrotationaxis 0.57735027 0.57735027 0.57735027 3
                                 endrepeat
-                                setdir output
                             endif
                             if $transform == 3
-                                setdir output/translationy/$dirname
-                                addtranslation 0 0.5 0
+                                set seqname $dirname-trans-x
+                                log $seqname
+                                setdir $outputdir/$seqname
+                                addtranslation -0.5 0 0
                                 repeat 100 as r
-                                    screenshot $dirname-$r.$fileformat
-                                    addtranslation 0 -0.01 0
+                                    screenshot $seqname-$r.$fileformat
+                                    addtranslation 0.01 0 0
                                 endrepeat
-                                setdir output
                             endif
                             if $transform == 4
-                                setdir output/zoom/$dirname
+                                set seqname $dirname-trans-y
+                                log $seqname
+                                setdir $outputdir/$seqname
+                                addtranslation 0 0.5 0
+                                repeat 100 as r
+                                    screenshot $seqname-$r.$fileformat
+                                    addtranslation 0 -0.01 0
+                                endrepeat
+                            endif
+                            if $transform == 5
+                                set seqname $dirname-trans-z
+                                log $seqname
+                                setdir $outputdir/$seqname
                                 setuseortho false
                                 addtranslation 0 0 0.5
                                 repeat 100 as r
-                                    screenshot $dirname-$r.$fileformat
+                                    screenshot $seqname-$r.$fileformat
                                     addtranslation 0 0 -0.01
                                 endrepeat
-                                setdir output
                             endif
+                            setdir $outputdir
+                            log done
                         endrepeat
                     endrepeat
                 endrepeat
@@ -361,3 +304,5 @@ repeat 9 as volume
         endrepeat
     endrepeat
 endrepeat
+log all done
+quit
