@@ -1,0 +1,8 @@
+numpy
+opencv-python
+pyarrow
+Pillow
+dash
+plotly
+pandas
+gunicorn
