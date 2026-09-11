@@ -3,4 +3,3 @@ output/
 __pycache__
 plots/
 test/
-temporal_data/

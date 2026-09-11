@@ -29,7 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent
 
 print("starting ...")
 # load data
-df = pd.read_parquet(BASE_DIR / "temporal_data" / "parquet")
+df = pd.read_parquet(BASE_DIR / "data" / "parquet")
 df["sampling_method"] = (
     df[["method", "virtual_sampling_method"]].astype(str).agg("-".join, axis=1)
 )
