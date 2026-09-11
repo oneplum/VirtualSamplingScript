@@ -12,6 +12,7 @@ import os
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -60,8 +61,16 @@ def _weighted_rms(weight: np.ndarray, X: np.ndarray) -> float:
 
 
 def _compute_bands(frame: np.ndarray) -> list[np.ndarray]:
-    G_t = [cv2.GaussianBlur(frame, (0, 0), sigmaX=sigma) for sigma in GAUSSIAN_SCALES]
-    return [G_t[k] - G_t[k + 1] for k in range(len(GAUSSIAN_SCALES) - 1)]
+    bands: list[np.ndarray] = []
+
+    prev = cv2.GaussianBlur(frame, (0, 0), sigmaX=GAUSSIAN_SCALES[0])
+
+    for sigma in GAUSSIAN_SCALES[1:]:
+        curr = cv2.GaussianBlur(frame, (0, 0), sigmaX=sigma)
+        bands.append(prev - curr)
+        prev = curr
+
+    return bands
 
 
 def compute_blti(paths: list[Path]) -> dict[int, list[float]]:
@@ -125,7 +134,8 @@ def compute_sequence(path: Path) -> tuple[str, list[dict[str, Any]], str]:
         res: list[dict[str, Any]] = []
 
         for frame_idx, frame_blti in frame_bltis.items():
-            frame_obj = {**frame_basic.__dict__, "frame_idx": frame_idx}
+            frame_obj = asdict(frame_basic)
+            frame_obj["frame_idx"] = frame_idx
 
             for i, blti in enumerate(frame_blti):
                 frame_obj[f"blti_{i}"] = blti
@@ -161,7 +171,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--output-format",
         choices=("parquet", "csv"),
         default="parquet",
-        help="Which plot file format to write.",
+        help="Output file format.",
     )
 
     parser.add_argument(
@@ -217,6 +227,8 @@ def main() -> int:
         print(f"Workers: {workers}")
     print(f"Batch size: {args.batch_size} sequences")
 
+    chunksize = max(1, (os.cpu_count() or 1) // 2)
+
     batch_rows: list[dict[str, Any]] = []
     batch_sequences = 0
     part_idx = 0
@@ -228,7 +240,7 @@ def main() -> int:
         results = executor.map(
             compute_sequence,
             sequence_paths,
-            chunksize=4,
+            chunksize=chunksize,
         )
     else:
         executor = None
