@@ -4,7 +4,6 @@ set fileformat png
 setinteraction 0
 logfile temporal.log
 clearlog
-logGLInfo true
 resize 512 512
 
 # volname-level-method-lighting-rate-vmethod-subdiv-transforms-axis[-r]
@@ -78,7 +77,7 @@ repeat 9 as volume
         setbackground 0 0 1 1
     endif
     log Volume $volume
-    repeat 3 as l
+    repeat 2 as l
         setLevel $l
         log Level $l
         repeat 2 as lighting
@@ -90,6 +89,7 @@ repeat 9 as volume
                 set lit l
                 settranslation 0 0 0
                 resetrotation
+                setspecularcolor 0.8 0.8 0.8
                 if $volume == 0
                     settfparams false 0.097 0.156
                 endif
@@ -144,7 +144,6 @@ repeat 9 as volume
                     if $y == 0
                         set vmethod n
                         set m $x * 13 + $lighting * 7 + $y
-                        set rateTotal 4
                     else
                         if $y == 1
                             set vmethod linvs
@@ -163,23 +162,15 @@ repeat 9 as volume
                         else
                             set m $x * 13 + $lighting * 7 + $y + 1
                         endif
-                        set rateTotal 3
                     endif
                     setmethod $m
                     log Method $m
-                    repeat $rateTotal as rateIter
+                    repeat 4 as rateIter
                         if $y == 0
                             if $rateIter == 0
                                 set rate 1
-                            endif
-                            if $rateIter == 1
-                                set rate 5
-                            endif
-                            if $rateIter == 2
-                                set rate 8
-                            endif
-                            if $rateIter == 3
-                                set rate 10
+                            else
+                                set rate $rateIter * 5
                             endif
                             setrate $rate
                             log Rate $rate
@@ -241,27 +232,27 @@ repeat 9 as volume
                                 set seqname $dirname-rot-x
                                 log $seqname
                                 setdir $outputdir/$seqname
-                                repeat 120 as r
+                                repeat 100 as r
                                     screenshot $seqname-$r.$fileformat
-                                    addrotationx 3
+                                    addrotationx 3.6
                                 endrepeat
                             endif
                             if $transform == 1
                                 set seqname $dirname-rot-y
                                 log $seqname
                                 setdir $outputdir/$seqname
-                                repeat 120 as r
+                                repeat 100 as r
                                     screenshot $seqname-$r.$fileformat
-                                    addrotationy 3
+                                    addrotationy 3.6
                                 endrepeat
                             endif
                             if $transform == 2
                                 set seqname $dirname-rot-diag
                                 log $seqname
                                 setdir $outputdir/$seqname
-                                repeat 120 as r
+                                repeat 100 as r
                                     screenshot $seqname-$r.$fileformat
-                                    addrotationaxis 0.57735027 0.57735027 0.57735027 3
+                                    addrotationaxis 0.57735027 0.57735027 0.57735027 3.6
                                 endrepeat
                             endif
                             if $transform == 3
