@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any, Literal, TextIO
 
 import numpy as np
-import pyarrow as pa
-import pyarrow.parquet as pq
+import polars as pl
 from PIL import Image
 
 OutputType = Literal["csv", "parquet"]
@@ -132,11 +131,8 @@ def write_parquet(output_path: Path, rows: list[dict]) -> None:
     if not rows:
         return
 
-    pq.write_table(
-        pa.Table.from_pylist(rows),
-        output_path,
-        compression="zstd",
-    )
+    df = pl.DataFrame(rows)
+    df.write_parquet(output_path)
 
 
 def write_to_file(
