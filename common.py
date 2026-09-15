@@ -36,7 +36,7 @@ DATASET_LABELS = {
 DATASET_ORDER = list(DATASET_LABELS.keys())
 
 VIRTUAL_METHOD_LABELS = {
-    "none": "-",
+    "none": "None",
     "linvs": "linear",
     "crvs": "Catmull-Rom Spline",
     "hermvs": "Hermite Spline",

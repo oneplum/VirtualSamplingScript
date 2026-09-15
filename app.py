@@ -34,6 +34,7 @@ from dash import ALL, Input, Output, State, dcc, html
 from blti import BLTI_K, GAUSSIAN_SCALES
 from common import (
     DATASET_LABELS,
+    DATASET_ORDER,
     METHOD_LABELS,
     METHOD_ORDER,
     TRANS_AXIS_LABELS,
@@ -42,10 +43,11 @@ from common import (
     VIRTUAL_METHOD_ORDER,
 )
 
-
 BASE_DIR = Path(__file__).resolve().parent
 
 METRIC_COLS = [f"blti_{i}" for i in range(BLTI_K)]
+
+NUM_COLS = ["frame_idx", "true_samples", "virtual_samples"]
 
 CATEGORICAL_COLS = [
     "dataset_name",
@@ -57,9 +59,17 @@ CATEGORICAL_COLS = [
     "trans_axis",
 ]
 
-# ---------------------------------------------------------------------------
-# Load data
-# ---------------------------------------------------------------------------
+MERGE_COLS = [
+    "dataset_name",
+    "level",
+    "lighting_enabled",
+    "true_samples",
+    "virtual_sampling_method",
+    "virtual_samples",
+    "trans_type",
+    "trans_axis",
+    "frame_idx",
+]
 
 print("Starting...")
 
@@ -67,50 +77,28 @@ df = pd.read_parquet(BASE_DIR / "data" / "parquet")
 
 print(f"Data loaded: {len(df):,} rows")
 
-# Convert repeated string / low-cardinality columns to categorical.
 for col in CATEGORICAL_COLS:
     if col in df.columns:
         df[col] = df[col].astype("category")
 
-# BLTI values do not normally need float64 precision for visualization.
 for col in METRIC_COLS:
     if col in df.columns:
         df[col] = df[col].astype("float32")
 
-# Smaller integer types where possible.
-if "frame_idx" in df.columns:
-    df["frame_idx"] = pd.to_numeric(df["frame_idx"], downcast="integer")
-
-if "true_samples" in df.columns:
-    df["true_samples"] = pd.to_numeric(
-        df["true_samples"],
-        downcast="integer",
-    )
-
-if "virtual_samples" in df.columns:
-    df["virtual_samples"] = pd.to_numeric(
-        df["virtual_samples"],
-        downcast="integer",
-    )
-
-# ---------------------------------------------------------------------------
-# Create sampling_method efficiently
-# ---------------------------------------------------------------------------
-#
-# Do not use:
-#
-#     df[["method", "virtual_sampling_method"]].astype(str).agg("-".join, axis=1)
-#
-# because that creates a large number of temporary Python strings.
-#
-# We still need the combined value for the UI, so create it once and
-# immediately convert it to category.
-# ---------------------------------------------------------------------------
+for col in NUM_COLS:
+    if col in df.columns:
+        df[col] = pd.to_numeric(df[col], downcast="integer")
 
 df["sampling_method"] = (
-    df["method"].astype(str)
-    + "-"
-    + df["virtual_sampling_method"].astype(str)
+    df["method"].astype(str) + "-" + df["virtual_sampling_method"].astype(str)
+).astype("category")
+
+df["db_lit"] = (
+    df["dataset_name"].astype(str) + "-" + df["lighting_enabled"].astype(str)
+).astype("category")
+
+df["db_level"] = (
+    df["dataset_name"].astype(str) + "-" + df["level"].astype(str)
 ).astype("category")
 
 print(
@@ -118,19 +106,23 @@ print(
     f"{df.memory_usage(deep=True).sum() / 1024**2:.1f} MB",
 )
 
-# ---------------------------------------------------------------------------
-# Column metadata
-# ---------------------------------------------------------------------------
-
 filter_cols: list[str] = []
 col_vals: dict[str, list] = {}
+
+col_val_orders = {
+    "dataset_name": DATASET_ORDER,
+    "method_name": METHOD_ORDER,
+    "virtual_sampling_method": VIRTUAL_METHOD_ORDER,
+}
 
 for col in df.columns:
     if col in METRIC_COLS:
         continue
 
-    if col not in ["sampling_method", "frame_idx"]:
+    if col not in ["sampling_method", "frame_idx", "db_lit", "db_level"]:
         values = df[col].unique().tolist()
+        if col in col_val_orders:
+            values = sorted(values, key=col_val_orders.get(col).index)
         col_vals[col] = values
 
         if col not in ["true_samples", "virtual_samples"]:
@@ -151,6 +143,8 @@ col_label = {
     "frame_idx": "Frame Index",
     "band_idx": "Band Center Scale",
     "blti": "BLTI",
+    "db_lit": "Dataset + Lighting",
+    "db_level": "Dataset + Level",
 }
 
 col_val_label = {
@@ -158,14 +152,15 @@ col_val_label = {
     "level": {l: f"Downsampled {l}" for l in range(3)},
     "method": METHOD_LABELS,
     "lighting_enabled": {
-        True: "Lighting on",
-        False: "Lighting off",
+        True: "Lighting enabled",
+        False: "Lighting disabled",
+        "True": "Lighting enabled",
+        "False": "Lighting disabled",
     },
     "virtual_sampling_method": VIRTUAL_METHOD_LABELS,
     "sampling_method": {
         f"{tm}-{vm}": (
-            f"{METHOD_LABELS.get(tm, tm)} + "
-            f"{VIRTUAL_METHOD_LABELS.get(vm, vm)}"
+            f"{METHOD_LABELS.get(tm, tm)} + {VIRTUAL_METHOD_LABELS.get(vm, vm)}"
         )
         for tm in METHOD_ORDER
         for vm in VIRTUAL_METHOD_ORDER
@@ -174,39 +169,30 @@ col_val_label = {
     "trans_axis": TRANS_AXIS_LABELS,
     "trans": {
         f"{tt}-{ta}": (
-            f"{TRANS_TYPE_LABELS.get(tt, tt)} - "
-            f"{TRANS_AXIS_LABELS.get(ta, ta)}"
+            f"{TRANS_TYPE_LABELS.get(tt, tt)} - {TRANS_AXIS_LABELS.get(ta, ta)}"
         )
         for tt in TRANS_TYPE_LABELS
         for ta in TRANS_AXIS_LABELS
     },
     "band_idx": {
-        k: (
-            f"{np.sqrt(GAUSSIAN_SCALES[k] * GAUSSIAN_SCALES[k + 1]):.2f}"
-        )
+        k: (f"{np.sqrt(GAUSSIAN_SCALES[k] * GAUSSIAN_SCALES[k + 1]):.2f}")
         for k in range(BLTI_K)
     },
 }
 
 facet_cols = [
+    "method",
+    "db_lit",
+    "db_level",
     "dataset_name",
     "level",
     "lighting_enabled",
-    "method",
 ]
 
-line_cols = [
-    "sampling_method",
-    "method",
-    "virtual_sampling_method",
-]
+line_cols = ["method", "sampling_method", "virtual_sampling_method", "lighting_enabled"]
 
 x_col = "band_idx"
 y_col = "blti"
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def build_filter_mask(
@@ -214,11 +200,6 @@ def build_filter_mask(
     *,
     exclude_cols: set[str] | None = None,
 ) -> np.ndarray:
-    """
-    Build one boolean mask without creating a large melted DataFrame.
-
-    This returns only a boolean array of len(df).
-    """
     exclude_cols = exclude_cols or set()
 
     mask = np.ones(len(df), dtype=bool)
@@ -242,23 +223,6 @@ def aggregate_mean(
     filtered: pd.DataFrame,
     groupby: list[str],
 ) -> pd.DataFrame:
-    """
-    Aggregate BLTI columns while they are still in wide format.
-
-    This is much more memory efficient than:
-
-        1.12M rows
-        -> melt
-        -> ~6.7M rows
-        -> groupby
-
-    We instead do:
-
-        1.12M rows
-        -> groupby
-        -> small result
-        -> melt
-    """
     result = (
         filtered.groupby(
             groupby,
@@ -281,10 +245,6 @@ def aggregate_statistics(
     filtered: pd.DataFrame,
     groupby: list[str],
 ) -> pd.DataFrame:
-    """
-    Calculate mean / median / p10 / p90 without first melting
-    the full input DataFrame.
-    """
     grouped = filtered.groupby(
         groupby,
         observed=True,
@@ -296,16 +256,12 @@ def aggregate_statistics(
     p10_df = grouped[METRIC_COLS].quantile(0.10)
     p90_df = grouped[METRIC_COLS].quantile(0.90)
 
-    # Convert each statistic to long format only after aggregation.
     def to_long(stat_df: pd.DataFrame, name: str) -> pd.DataFrame:
-        return (
-            stat_df.reset_index()
-            .melt(
-                id_vars=groupby,
-                value_vars=METRIC_COLS,
-                var_name=x_col,
-                value_name=name,
-            )
+        return stat_df.reset_index().melt(
+            id_vars=groupby,
+            value_vars=METRIC_COLS,
+            var_name=x_col,
+            value_name=name,
         )
 
     result = to_long(mean_df, "mean")
@@ -317,24 +273,25 @@ def aggregate_statistics(
     return result
 
 
-# ---------------------------------------------------------------------------
-# Dash application
-# ---------------------------------------------------------------------------
-
 app = dash.Dash(__name__)
 
 app.layout = html.Div(
     [
         html.H1(
             (
-                "Evaluating Temporal Coherance of reconstruction "
-                "methods in Volume Rendering "
+                "Evaluating Temporal Coherance of reconstruction methods in Volume Rendering"
             ),
             style={
                 "textAlign": "center",
                 "fontFamily": "sans-serif",
                 "marginBottom": "10px",
             },
+        ),
+        html.P(
+            (
+                "Select two distinct simulation points on the upper charts to compare their temporal stability performance below."
+            ),
+            style={"textAlign": "center", "color": "#666", "marginBottom": "20px"},
         ),
         html.Div(
             [
@@ -369,7 +326,7 @@ app.layout = html.Div(
                                         filter_col,
                                         [],
                                     ),
-                                    clearable=False,
+                                    clearable=True,
                                     debounce=True,
                                     closeOnSelect=False,
                                     multi=True,
@@ -460,6 +417,13 @@ app.layout = html.Div(
             },
         ),
         html.Div(
+            [dcc.Graph(id="delta-chart")],
+            style={
+                "width": "95%",
+                "margin": "20px auto",
+            },
+        ),
+        html.Div(
             [dcc.Graph(id="main-chart")],
             style={
                 "width": "95%",
@@ -507,7 +471,7 @@ app.layout = html.Div(
                                                 filter_col,
                                                 [],
                                             ),
-                                            clearable=False,
+                                            clearable=True,
                                             debounce=True,
                                             closeOnSelect=False,
                                             multi=True,
@@ -545,22 +509,15 @@ app.layout = html.Div(
                 )
                 for sub_idx in range(2)
             ],
-            style={
-                "width": "95%",
-                "display": "flex",
-            },
+            style={"width": "95%", "display": "flex", "margin": "0 auto"},
         ),
     ]
 )
 
 
-# ---------------------------------------------------------------------------
-# Main chart
-# ---------------------------------------------------------------------------
-
-
 @app.callback(
     Output("main-chart", "figure"),
+    Output("delta-chart", "figure"),
     Input(
         {"type": "filter-dropdown", "column": ALL},
         "value",
@@ -577,8 +534,6 @@ def update_main_chart(
 
     mask = build_filter_mask(filter_vals)
 
-    # Important:
-    # aggregate while data is still wide.
     filtered = df.loc[mask]
 
     filted_df = aggregate_mean(
@@ -594,6 +549,22 @@ def update_main_chart(
         color=sel_line,
         facet_col=sel_facet,
         facet_col_wrap=2,
+        category_orders={
+            "dataset_name": [
+                x for x in DATASET_ORDER if x in col_vals.get("dataset_name", [])
+            ],
+            "method": [x for x in METHOD_ORDER if x in col_vals.get("method", [])],
+            "virtual_sampling_method": [
+                x
+                for x in VIRTUAL_METHOD_ORDER
+                if x in col_vals.get("virtual_sampling_method", [])
+            ],
+            "sampling_method": [
+                x
+                for x in col_val_label.get("sampling_method")
+                if x in df["sampling_method"].unique().tolist()
+            ],
+        },
         labels={
             y_col: col_label.get(y_col, y_col),
             x_col: col_label.get(x_col, x_col),
@@ -652,12 +623,108 @@ def update_main_chart(
         ),
     )
 
-    return fig
+    baseline = filtered.loc[
+        filtered["method"] == "lin", MERGE_COLS + METRIC_COLS
+    ].rename(columns={col: f"baseline_{col}" for col in METRIC_COLS})
 
+    delta_df = filtered[filtered["method"] != "lin"].merge(
+        baseline,
+        on=MERGE_COLS,
+        how="inner",
+    )
 
-# ---------------------------------------------------------------------------
-# Selected data
-# ---------------------------------------------------------------------------
+    for col in METRIC_COLS:
+        delta_df[col] = delta_df[col] - delta_df[f"baseline_{col}"]
+
+    delta_df = aggregate_mean(
+        delta_df,
+        groupby,
+    )
+
+    bar_fig = px.bar(
+        delta_df,
+        x=x_col,
+        y=y_col,
+        color=sel_line,
+        barmode="group",
+        facet_col=sel_facet,
+        facet_col_wrap=2,
+        category_orders={
+            "dataset_name": [
+                x for x in DATASET_ORDER if x in col_vals.get("dataset_name", [])
+            ],
+            "method": [
+                x
+                for x in METHOD_ORDER
+                if x != "lin" and x in col_vals.get("method", [])
+            ],
+            "virtual_sampling_method": [
+                x
+                for x in VIRTUAL_METHOD_ORDER
+                if x in col_vals.get("virtual_sampling_method", [])
+            ],
+            "sampling_method": [
+                x
+                for x in col_val_label.get("sampling_method")
+                if x in df["sampling_method"].unique().tolist()
+            ],
+        },
+        labels={
+            y_col: "Δ BLTI of linear",
+            x_col: col_label.get(x_col, x_col),
+        },
+        color_discrete_sequence=px.colors.qualitative.Alphabet,
+    )
+
+    bar_fig.add_hline(
+        y=0,
+        line_width=1,
+        line_color="black",
+    )
+
+    bar_fig.update_xaxes(
+        tickmode="array",
+        tickvals=list(range(BLTI_K)),
+        ticktext=list(
+            col_val_label.get(
+                x_col,
+                {},
+            ).values()
+        ),
+    )
+
+    bar_fig.update_layout(
+        template="plotly_white",
+        height=500,
+        # title="Δ BLTI Delta vs line",
+        legend_title_text=col_label.get(sel_line, sel_line),
+    )
+
+    bar_fig.for_each_annotation(
+        lambda annotation: annotation.update(
+            text=col_val_label.get(
+                sel_facet,
+                {},
+            ).get(
+                annotation.text.split("=")[-1],
+                annotation.text,
+            )
+        )
+    )
+
+    bar_fig.for_each_trace(
+        lambda trace: trace.update(
+            name=col_val_label.get(
+                sel_line,
+                {},
+            ).get(
+                trace.name,
+                trace.name,
+            )
+        )
+    )
+
+    return fig, bar_fig
 
 
 @app.callback(
@@ -683,11 +750,6 @@ def update_selected_data(
         return sel_data + [data]
 
     return [data]
-
-
-# ---------------------------------------------------------------------------
-# Comparison charts
-# ---------------------------------------------------------------------------
 
 
 @app.callback(
@@ -723,7 +785,6 @@ def update_cmp_chart(
     groupby = [sel_facet, sel_line]
 
     for idx, data in enumerate(sel_data):
-        # Build filter mask.
         mask = build_filter_mask(
             filter_vals,
             exclude_cols={
@@ -732,11 +793,9 @@ def update_cmp_chart(
             },
         )
 
-        # Add selected facet and line.
         mask &= (df[sel_facet] == data[0]).to_numpy()
         mask &= (df[sel_line] == data[1]).to_numpy()
 
-        # Add sampling-rate filters.
         true_rate = filter_rates[idx * 2]
         virtual_rate = filter_rates[idx * 2 + 1]
 
@@ -748,7 +807,6 @@ def update_cmp_chart(
 
         filtered = df.loc[mask]
 
-        # Aggregate BEFORE converting to long format.
         cmp_df = aggregate_statistics(
             filtered,
             groupby,
