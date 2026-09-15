@@ -301,7 +301,7 @@ def process_data(lf: pl.LazyFrame, filters: list, groupby: list[str], aggs: list
         .sort(idx_cols + [X_COL])
     )
 
-def filter_exprs(filter_vals) -> (list, list):
+def filter_exprs(filter_vals) -> tuple[list, list]:
     method_filters = []
     other_filters = []
     for col_name, filter_val in zip(FILTER_COLS, filter_vals):
