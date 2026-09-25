@@ -51,6 +51,15 @@ TRANS_AXIS_LABELS = {
     "diag": "Axis-Diagonal",
 }
 
+SAMPLING_METHOD_LABEL = {}
+for m in METHOD_ORDER:
+    s = METHOD_LABELS.get(m, m)
+    for vm in VIRTUAL_METHOD_ORDER:
+        if vm != "none":
+            s = f"{s} + {VIRTUAL_METHOD_LABELS.get(vm, vm)}"
+        SAMPLING_METHOD_LABEL[f"{m}-{vm}"] = s
+SAMPLING_METHOD_ORDER = list(SAMPLING_METHOD_LABEL.keys())
+
 
 @dataclass
 class FrameBasic:
@@ -64,13 +73,66 @@ class FrameBasic:
     trans_type: str = field(default="rot", kw_only=True)
     trans_axis: str = field(default="y", kw_only=True)
 
-    # @classmethod
-    # def from_obj(cls, obj, dic: dict[str, Any] = {}):
-    #     for obj_field in fields(cls):
-    #         value = getattr(obj, obj_field.name, None)
-    #         if value is not None:
-    #             dic[obj_field.name] = covert_value(value, obj_field.type)
-    #     return cls(**dic)
+
+@dataclass(frozen=True)
+class ColMeta:
+    label: str
+    values: dict[Any, str] = field(default_factory=dict)
+    order: list[Any] = field(default_factory=list)
+
+    def get_val_label(self, value: Any) -> str:
+        return self.values.get(value, str(value))
+
+    def order_vals(self, values) -> list[Any]:
+        curr = set(values)
+        if self.order:
+            return [val for val in self.order if val in curr]
+        return sorted(curr)
+
+
+COL_META = {
+    "dataset_name": ColMeta(
+        label="Dataset", values=DATASET_LABELS, order=DATASET_ORDER
+    ),
+    "level": ColMeta(
+        label="Downsamples",
+        values={i: f"Downloaded {i}" for i in range(3)},
+        order=list(range(3)),
+    ),
+    "method": ColMeta(label="True Method", values=METHOD_LABELS, order=METHOD_ORDER),
+    "lighting_enabled": ColMeta(
+        label="Illumination",
+        values={
+            True: "Lighting enabled",
+            False: "Lighting disabled",
+            "True": "Lighting enabled",
+            "False": "Lighting disabled",
+        },
+        order=[False, True],
+    ),
+    "true_samples": ColMeta(label="Sampling Rate"),
+    "virtual_sampling_method": ColMeta(
+        label="Virtual Method",
+        values=VIRTUAL_METHOD_LABELS,
+        order=VIRTUAL_METHOD_ORDER,
+    ),
+    "virtual_samples": ColMeta(label="Virtual Samples"),
+    "trans_type": ColMeta(
+        label="Transform Type",
+        values=TRANS_TYPE_LABELS,
+        order=list(TRANS_TYPE_LABELS.keys()),
+    ),
+    "trans_axis": ColMeta(
+        label="Transform Axis",
+        values=TRANS_AXIS_LABELS,
+        order=list(TRANS_AXIS_LABELS.keys()),
+    ),
+    "sampling_method": ColMeta(
+        label="Method",
+        values=SAMPLING_METHOD_LABEL,
+        order=list(SAMPLING_METHOD_LABEL.keys()),
+    ),
+}
 
 
 def covert_value(value: Any, target_type: type):
