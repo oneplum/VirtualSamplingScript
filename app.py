@@ -227,16 +227,25 @@ app.layout = html.Div(
 def filter_exprs(filter_list) -> tuple[list, list]:
     method_filters = []
     other_filters = []
-    for filter_item in filter_list:
-        col_name = filter_item["id"]["column"]
-        filter_val = filter_item["value"]
+    filter_dict = {
+        filter_item["id"]["column"]: filter_item["value"] for filter_item in filter_list
+    }
+    filter_virtual_method = filter_dict.get("virtual_sampling_method", [])
+    filter_true_samples = filter_dict.get("true_samples", [])
+    filter_virtual_samples = filter_dict.get("virtual_samples", [])
+    if filter_true_samples and 1 not in filter_true_samples and (not filter_virtual_method or any(x != "none" for x in filter_virtual_method)):
+            filter_dict["true_samples"].append(1)
+    if filter_virtual_samples and 0 not in filter_virtual_samples and (not filter_virtual_method or "none" in filter_virtual_method):
+            filter_dict["virtual_samples"].append(0)
+
+    for col_name, filter_val in filter_dict.items():
         if not filter_val:
             continue
 
         if len(filter_val) == len(FILTER_VALUES[col_name]):
             continue
 
-        if col_name in ["method", "virtual_sampling_method"]:
+        if col_name in ["method", "virtual_sampling_method", "virtual_samples"]:
             method_filters.append(pl.col(col_name).is_in(filter_val))
         else:
             other_filters.append(pl.col(col_name).is_in(filter_val))
@@ -351,13 +360,168 @@ def line_chart(df: pl.DataFrame, sel_facet: str, sel_method: str) -> go.Figure:
 
     fig.for_each_annotation(
         lambda annotation: annotation.update(
-            text=COL_META[sel_facet].get_val_label(annotation.text.split("=")[-1])
+            text=COL_META[sel_facet].get_val_label(
+                next(
+                    v
+                    for v in categroy_orders[sel_facet]
+                    if str(v) == annotation.text.split("=")[-1]
+                )
+            )
         )
     )
 
     fig.data = (
         fig.data[-len(categroy_orders[sel_facet]) :]
         + fig.data[: -len(categroy_orders[sel_facet])]
+    )
+
+    return fig
+
+
+def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
+    category_orders = {
+        col: COL_META[col].order_vals(df.get_column(col).unique().to_list())
+        for col in [GROUP_COL, sel_facet, X_COL]
+    }
+
+    pdf = df.to_pandas()
+
+    x_map = {value: i for i, value in enumerate(category_orders[X_COL])}
+    pdf["_x"] = pdf[X_COL].map(x_map)
+
+    group_order = category_orders[GROUP_COL]
+    n_groups = len(group_order)
+    group_width = 0.7
+    group_map = {group: i for i, group in enumerate(group_order)}
+
+    pdf["_x"] += pdf[GROUP_COL].map(
+        lambda group: (group_map[group] - (n_groups - 1) / 2) * group_width / n_groups
+    )
+
+    fig = px.scatter(
+        pdf,
+        x="_x",
+        y=f"{Y_COL}_diff",
+        color=GROUP_COL,
+        facet_col=sel_facet,
+        facet_col_wrap=2,
+        facet_col_spacing=0.12,
+        facet_row_spacing=0.15,
+        category_orders=category_orders,
+        color_discrete_sequence=px.colors.qualitative.Alphabet,
+        custom_data=[GROUP_COL, sel_facet, X_COL],
+        labels={
+            f"{Y_COL}_diff": "Δ BLTI to linear",
+            "_x": COL_META[X_COL].label,
+        },
+    )
+
+    fig.update_traces(
+        mode="markers",
+        marker=dict(size=10),
+    )
+
+    for trace in list(fig.data):
+        if trace.mode != "markers":
+            continue
+
+        if trace.customdata is None:
+            continue
+
+        stem_x = []
+        stem_y = []
+
+        for point in trace.customdata:
+            group = point[0]
+            facet = point[1]
+            x_category = point[2]
+
+            rows = pdf[
+                (pdf[GROUP_COL] == group)
+                & (pdf[sel_facet] == facet)
+                & (pdf[X_COL] == x_category)
+            ]
+
+            if rows.empty:
+                continue
+
+            x = rows["_x"].iloc[0]
+            y = rows[f"{Y_COL}_diff"].iloc[0]
+
+            stem_x.extend([x, x, None])
+            stem_y.extend([0, y, None])
+
+        fig.add_trace(
+            go.Scatter(
+                x=stem_x,
+                y=stem_y,
+                mode="lines",
+                line=dict(
+                    color=trace.marker.color,
+                    width=2,
+                ),
+                showlegend=False,
+                hoverinfo="skip",
+                xaxis=trace.xaxis,
+                yaxis=trace.yaxis,
+            )
+        )
+
+    fig.add_hline(
+        y=0,
+        line_width=1,
+        line_color="black",
+    )
+
+    fig.update_xaxes(
+        matches=None,
+        showticklabels=True,
+        tickmode="array",
+        tickvals=list(range(BLTI_K)),
+        ticktext=list(COL_META[X_COL].values.values()),
+        showgrid=False,
+        title_text=COL_META[X_COL].label,
+    )
+
+    fig.update_yaxes(
+        matches=None,
+        showticklabels=True,
+        showline=True,
+        linecolor="black",
+        linewidth=1,
+        zeroline=True,
+        zerolinecolor="black",
+        zerolinewidth=1,
+        title_text="Δ BLTI to linear",
+    )
+
+    dynamic_height = (len(category_orders[sel_facet]) / 2 * 250) + 200
+
+    fig.update_layout(
+        template="plotly_white",
+        height=dynamic_height,
+        # title="Δ BLTI Delta vs line",
+        legend_title_text=COL_META[GROUP_COL].label,
+    )
+
+    fig.for_each_annotation(
+        lambda annotation: annotation.update(
+            text=COL_META[sel_facet].get_val_label(
+                next(
+                    v
+                    for v in category_orders[sel_facet]
+                    if str(v) == annotation.text.split("=")[-1]
+                )
+            )
+        )
+    )
+
+    fig.for_each_trace(
+        lambda trace: trace.update(
+            name=COL_META[GROUP_COL].get_val_label(trace.name)
+            if trace.name in group_order
+            else trace.name
+        )
     )
 
     return fig
@@ -409,7 +573,13 @@ def bar_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
 
     fig.for_each_annotation(
         lambda annotation: annotation.update(
-            text=COL_META[sel_facet].get_val_label(annotation.text.split("=")[-1])
+            text=COL_META[sel_facet].get_val_label(
+                next(
+                    v
+                    for v in categroy_orders[sel_facet]
+                    if str(v) == annotation.text.split("=")[-1]
+                )
+            )
         )
     )
 
@@ -441,7 +611,7 @@ def update_main_chart(filter_vals, sel_facet):
     blf = process_data(lf, baseline_filters, groupby, baggs)
 
     filters = (
-        method_filters + [(pl.col("sampling_method") != "lin-none")] + other_filters
+        method_filters + other_filters
     )
     merge_cols = [X_COL]
     if sel_facet != "method":
@@ -456,7 +626,7 @@ def update_main_chart(filter_vals, sel_facet):
     fdf = flf.collect().sort(groupby + [GROUP_COL, X_COL])
     bdf = blf.collect().sort(groupby + [X_COL])
 
-    return bar_chart(fdf, sel_facet), line_chart(bdf, sel_facet, "lin-none")
+    return lollipop_chart(fdf, sel_facet), line_chart(bdf, sel_facet, "lin-none")
 
 
 @app.callback(

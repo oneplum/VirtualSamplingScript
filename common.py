@@ -53,8 +53,8 @@ TRANS_AXIS_LABELS = {
 
 SAMPLING_METHOD_LABEL = {}
 for m in METHOD_ORDER:
-    s = METHOD_LABELS.get(m, m)
     for vm in VIRTUAL_METHOD_ORDER:
+        s = METHOD_LABELS.get(m, m)
         if vm != "none":
             s = f"{s} + {VIRTUAL_METHOD_LABELS.get(vm, vm)}"
         SAMPLING_METHOD_LABEL[f"{m}-{vm}"] = s
@@ -105,8 +105,6 @@ COL_META = {
         values={
             True: "Lighting enabled",
             False: "Lighting disabled",
-            "True": "Lighting enabled",
-            "False": "Lighting disabled",
         },
         order=[False, True],
     ),
