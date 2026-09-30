@@ -185,7 +185,6 @@ app.layout = html.Div(
                         html.Div(
                             [
                                 html.Button("Download CSV", id="download-csv-btn"),
-                                dcc.Store(id="csv-data"),
                                 dcc.Download(id="download-csv"),
                             ],
                             style={
@@ -276,7 +275,7 @@ def filter_exprs(filter_list) -> tuple[list, list]:
 
 
 def process_data(
-    lf: pl.LazyFrame, filters: list, groupby: list[str], aggs: list[str]
+    lf: pl.LazyFrame, filter_list: list, groupby: list[str], aggs: list[str]
 ) -> pl.LazyFrame:
     idx_cols = groupby + [GROUP_COL]
     select_cols = idx_cols + METRIC_COLS
@@ -291,8 +290,12 @@ def process_data(
     else:
         agg_exprs = [agg_map[agg_expr].alias(agg_expr) for agg_expr in aggs]
 
+    if filter_list:
+        flf = lf.filter(*filter_list)
+    else:
+        flf = lf
     return (
-        lf.filter(pl.all_horizontal(filters))
+        flf
         .select(select_cols)
         .unpivot(on=METRIC_COLS, index=idx_cols, variable_name=X_COL, value_name=Y_COL)
         .group_by(idx_cols + [X_COL])
@@ -363,7 +366,7 @@ def line_chart(df: pl.DataFrame, sel_facet: str, sel_method: str) -> go.Figure:
             col=col_idx,
         )
 
-    dynamic_height = (len(categroy_orders[sel_facet]) * 250) + 150
+    dynamic_height = (len(categroy_orders[sel_facet]) * 250) + 200
 
     fig.update_layout(
         title={
@@ -437,7 +440,7 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
         facet_col_spacing=0.12,
         facet_row_spacing=0.12,
         category_orders=category_orders,
-        color_discrete_sequence=px.colors.qualitative.Alphabet,
+        color_discrete_sequence=px.colors.qualitative.Dark24 + px.colors.qualitative.Light24,
         custom_data=[GROUP_COL, sel_facet, X_COL],
         labels={
             f"{Y_COL}_diff": "Δ BLTI to linear",
@@ -509,7 +512,7 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
         tickvals=list(range(BLTI_K)),
         ticktext=list(COL_META[X_COL].values.values()),
         showgrid=False,
-        title_text=COL_META[X_COL].label,
+        # title_text=COL_META[X_COL].label,
     )
 
     fig.update_yaxes(
@@ -524,7 +527,7 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
         title_text="Δ BLTI to linear",
     )
 
-    dynamic_height = (len(category_orders[sel_facet]) / 2 * 250) + 200
+    dynamic_height = (len(category_orders[sel_facet]) / 2 * 250) + 250
 
     fig.update_layout(
         template="plotly_white",
@@ -561,7 +564,6 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
 @app.callback(
     Output("main-chart", "figure"),
     Output("baseline-chart", "figure"),
-    Output("csv-data", "data"),
     Input(
         {"type": "filter-dropdown", "column": ALL},
         "value",
@@ -571,10 +573,6 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
 def update_main_chart(filter_vals, sel_facet):
     method_filters, other_filters = filter_exprs(ctx.inputs_list[0])
     groupby = [sel_facet]
-    filters = method_filters + other_filters
-    flf = process_data(lf, filters, groupby, ["mean"])
-
-    dflf = flf
 
     baseline_filters = [(pl.col("sampling_method") == "lin-none")] + other_filters
     baggs = ["mean", "median", "p10", "p90"]
@@ -587,31 +585,43 @@ def update_main_chart(filter_vals, sel_facet):
     if sel_facet != "method":
         merge_cols.append(sel_facet)
     dflf = (
-        dflf.join(blf.select(merge_cols + ["mean"]), on=merge_cols, how="left")
+        process_data(lf, filters, groupby, ["mean"])
+        .join(blf.select(merge_cols + ["mean"]), on=merge_cols, how="left")
         .with_columns((pl.col(Y_COL) - pl.col("mean")).alias(f"{Y_COL}_diff"))
         .drop(["mean", Y_COL])
     )
 
-    fdf = flf.collect().sort(groupby + [GROUP_COL, X_COL])
-    dfdf = dflf.collect().sort([sel_facet, GROUP_COL, X_COL])
-    bdf = blf.collect().sort([sel_facet, X_COL])
+    dfdf = dflf.sort([sel_facet, GROUP_COL, X_COL]).collect()
+    fig_lollipop = lollipop_chart(dfdf, sel_facet)
 
-    return (
-        lollipop_chart(dfdf, sel_facet),
-        line_chart(bdf, sel_facet, "lin-none"),
-        fdf.write_csv(),
-    )
+    del dfdf
+
+    bdf = blf.sort([sel_facet, X_COL]).collect()
+    fig_line = line_chart(bdf, sel_facet, "lin-none")
+    del bdf
+
+    return fig_lollipop, fig_line
 
 
 @app.callback(
     Output("download-csv", "data"),
     Input("download-csv-btn", "n_clicks"),
-    State("csv-data", "data"),
+    Input(
+        {"type": "filter-dropdown", "column": ALL},
+        "value",
+    ),
+    Input("facet-dropdown", "value"),
     prevent_initial_call=True,
 )
-def download_data(n_clicks, csv_data):
+def download_data(n_clicks, filter_vals, sel_facet):
+    method_filters, other_filters = filter_exprs(ctx.inputs_list[1])
+    groupby = [sel_facet]
+    filters = (
+        method_filters + other_filters
+    )
+    flf = process_data(lf, filters, groupby, ["mean"])
     return {
-        "content": csv_data,
+        "content": flf.collect().write_csv(),
         "filename": "data.csv",
         "type": "text/csv",
     }
