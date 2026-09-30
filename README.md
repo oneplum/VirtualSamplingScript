@@ -264,6 +264,8 @@ app.py
 
 It can be used to explore and analyze the computed BLTI results interactively.
 
+![BLTI Visualization](dashboard.png)
+
 ## Start the Visualization Application
 
 Run:

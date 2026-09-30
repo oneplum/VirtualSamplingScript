@@ -184,8 +184,18 @@ app.layout = html.Div(
                         ),
                         html.Div(
                             [
-                                html.Button("Download CSV", id="download-csv-btn"),
-                                dcc.Download(id="download-csv"),
+                                html.Label(
+                                    "Action: ",
+                                    style={"fontWeight": "bold"},
+                                ),
+                                html.Div(
+                                    [
+                                        html.Button("Download CSV", id="download-csv-btn"),
+
+                                        dcc.Download(id="download-csv"),
+                                    ],
+                                    style={}
+                                ),
                             ],
                             style={
                                 "minWidth": "0",
@@ -606,15 +616,18 @@ def update_main_chart(filter_vals, sel_facet):
 @app.callback(
     Output("download-csv", "data"),
     Input("download-csv-btn", "n_clicks"),
-    Input(
+    State(
         {"type": "filter-dropdown", "column": ALL},
         "value",
     ),
-    Input("facet-dropdown", "value"),
+    State("facet-dropdown", "value"),
     prevent_initial_call=True,
 )
 def download_data(n_clicks, filter_vals, sel_facet):
-    method_filters, other_filters = filter_exprs(ctx.inputs_list[1])
+    if not n_clicks:
+        raise dash.exceptions.PreventUpdate
+
+    method_filters, other_filters = filter_exprs(ctx.states_list[0])
     groupby = [sel_facet]
     filters = (
         method_filters + other_filters
@@ -660,6 +673,6 @@ server = app.server
 
 if __name__ == "__main__":
     app.run(
-        debug=True,
+        debug=False,
         host="0.0.0.0",
     )
