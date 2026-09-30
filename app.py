@@ -542,6 +542,8 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
                     if str(v) == annotation.text.split("=")[-1]
                 )
             )
+            if sel_facet in COL_META
+            else annotation.text
         )
     )
 
