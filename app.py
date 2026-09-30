@@ -31,7 +31,7 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
-from dash import ALL, Input, Output, ctx, dcc, html
+from dash import ALL, Input, Output, State, ctx, dcc, html
 
 from blti import BLTI_K, GAUSSIAN_SCALES
 from common import COL_META, ColMeta, FrameBasic
@@ -181,7 +181,19 @@ app.layout = html.Div(
                                 "flex": "1",
                                 "margin": "auto 2px",
                             },
-                        )
+                        ),
+                        html.Div(
+                            [
+                                html.Button("Download CSV", id="download-csv-btn"),
+                                dcc.Store(id="csv-data"),
+                                dcc.Download(id="download-csv"),
+                            ],
+                            style={
+                                "minWidth": "0",
+                                "flex": "1",
+                                "margin": "auto 2px",
+                            },
+                        ),
                     ],
                     style={
                         "width": "100%",
@@ -233,10 +245,20 @@ def filter_exprs(filter_list) -> tuple[list, list]:
     filter_virtual_method = filter_dict.get("virtual_sampling_method", [])
     filter_true_samples = filter_dict.get("true_samples", [])
     filter_virtual_samples = filter_dict.get("virtual_samples", [])
-    if filter_true_samples and 1 not in filter_true_samples and (not filter_virtual_method or any(x != "none" for x in filter_virtual_method)):
-            filter_dict["true_samples"].append(1)
-    if filter_virtual_samples and 0 not in filter_virtual_samples and (not filter_virtual_method or "none" in filter_virtual_method):
-            filter_dict["virtual_samples"].append(0)
+    if (
+        filter_true_samples
+        and 1 not in filter_true_samples
+        and (
+            not filter_virtual_method or any(x != "none" for x in filter_virtual_method)
+        )
+    ):
+        filter_dict["true_samples"].append(1)
+    if (
+        filter_virtual_samples
+        and 0 not in filter_virtual_samples
+        and (not filter_virtual_method or "none" in filter_virtual_method)
+    ):
+        filter_dict["virtual_samples"].append(0)
 
     for col_name, filter_val in filter_dict.items():
         if not filter_val:
@@ -282,6 +304,8 @@ def process_data(
 def line_chart(df: pl.DataFrame, sel_facet: str, sel_method: str) -> go.Figure:
     categroy_orders = {
         col: COL_META[col].order_vals(df.get_column(col).unique().to_list())
+        if col in COL_META
+        else df.get_column(col).unique().to_list()
         for col in [sel_facet, X_COL]
     }
 
@@ -292,6 +316,7 @@ def line_chart(df: pl.DataFrame, sel_facet: str, sel_method: str) -> go.Figure:
         markers=True,
         facet_col=sel_facet,
         facet_col_wrap=1,
+        facet_row_spacing=0.05,
         category_orders=categroy_orders,
         labels={
             "mean": COL_META[Y_COL].label,
@@ -367,6 +392,8 @@ def line_chart(df: pl.DataFrame, sel_facet: str, sel_method: str) -> go.Figure:
                     if str(v) == annotation.text.split("=")[-1]
                 )
             )
+            if sel_facet in COL_META
+            else annotation.text
         )
     )
 
@@ -381,6 +408,8 @@ def line_chart(df: pl.DataFrame, sel_facet: str, sel_method: str) -> go.Figure:
 def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
     category_orders = {
         col: COL_META[col].order_vals(df.get_column(col).unique().to_list())
+        if col in COL_META
+        else df.get_column(col).unique().to_list()
         for col in [GROUP_COL, sel_facet, X_COL]
     }
 
@@ -406,7 +435,7 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
         facet_col=sel_facet,
         facet_col_wrap=2,
         facet_col_spacing=0.12,
-        facet_row_spacing=0.15,
+        facet_row_spacing=0.12,
         category_orders=category_orders,
         color_discrete_sequence=px.colors.qualitative.Alphabet,
         custom_data=[GROUP_COL, sel_facet, X_COL],
@@ -527,75 +556,10 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
     return fig
 
 
-def bar_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
-    categroy_orders = {
-        col: COL_META[col].order_vals(df.get_column(col).unique().to_list())
-        for col in [GROUP_COL, sel_facet, X_COL]
-    }
-
-    fig = px.bar(
-        df,
-        x=X_COL,
-        y=f"{Y_COL}_diff",
-        color=GROUP_COL,
-        barmode="group",
-        facet_col=sel_facet,
-        facet_col_wrap=2,
-        category_orders=categroy_orders,
-        labels={
-            f"{Y_COL}_diff": "Δ BLTI of linear",
-            X_COL: COL_META[X_COL].label,
-        },
-        custom_data=[GROUP_COL, sel_facet],
-        color_discrete_sequence=px.colors.qualitative.Alphabet,
-    )
-
-    fig.add_hline(
-        y=0,
-        line_width=1,
-        line_color="black",
-    )
-
-    fig.update_xaxes(
-        tickmode="array",
-        tickvals=list(range(BLTI_K)),
-        ticktext=list(COL_META[X_COL].values.values()),
-    )
-
-    dynamic_height = (len(categroy_orders[sel_facet]) / 2 * 250) + 150
-
-    fig.update_layout(
-        template="plotly_white",
-        height=dynamic_height,
-        title="Δ BLTI Delta vs line",
-        legend_title_text=COL_META[GROUP_COL].label,
-    )
-
-    fig.for_each_annotation(
-        lambda annotation: annotation.update(
-            text=COL_META[sel_facet].get_val_label(
-                next(
-                    v
-                    for v in categroy_orders[sel_facet]
-                    if str(v) == annotation.text.split("=")[-1]
-                )
-            )
-        )
-    )
-
-    fig.for_each_trace(
-        lambda trace: trace.update(
-            name=COL_META[GROUP_COL].get_val_label(
-                trace.name,
-            )
-        )
-    )
-    return fig
-
-
 @app.callback(
     Output("main-chart", "figure"),
     Output("baseline-chart", "figure"),
+    Output("csv-data", "data"),
     Input(
         {"type": "filter-dropdown", "column": ALL},
         "value",
@@ -605,6 +569,10 @@ def bar_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
 def update_main_chart(filter_vals, sel_facet):
     method_filters, other_filters = filter_exprs(ctx.inputs_list[0])
     groupby = [sel_facet]
+    filters = method_filters + other_filters
+    flf = process_data(lf, filters, groupby, ["mean"])
+
+    dflf = flf
 
     baseline_filters = [(pl.col("sampling_method") == "lin-none")] + other_filters
     baggs = ["mean", "median", "p10", "p90"]
@@ -616,17 +584,35 @@ def update_main_chart(filter_vals, sel_facet):
     merge_cols = [X_COL]
     if sel_facet != "method":
         merge_cols.append(sel_facet)
-
-    flf = (
-        process_data(lf, filters, groupby, ["mean"])
-        .join(blf.select(merge_cols + ["mean"]), on=merge_cols, how="left")
+    dflf = (
+        dflf.join(blf.select(merge_cols + ["mean"]), on=merge_cols, how="left")
         .with_columns((pl.col(Y_COL) - pl.col("mean")).alias(f"{Y_COL}_diff"))
         .drop(["mean", Y_COL])
     )
-    fdf = flf.collect().sort(groupby + [GROUP_COL, X_COL])
-    bdf = blf.collect().sort(groupby + [X_COL])
 
-    return lollipop_chart(fdf, sel_facet), line_chart(bdf, sel_facet, "lin-none")
+    fdf = flf.collect().sort(groupby + [GROUP_COL, X_COL])
+    dfdf = dflf.collect().sort([sel_facet, GROUP_COL, X_COL])
+    bdf = blf.collect().sort([sel_facet, X_COL])
+
+    return (
+        lollipop_chart(dfdf, sel_facet),
+        line_chart(bdf, sel_facet, "lin-none"),
+        fdf.write_csv(),
+    )
+
+
+@app.callback(
+    Output("download-csv", "data"),
+    Input("download-csv-btn", "n_clicks"),
+    State("csv-data", "data"),
+    prevent_initial_call=True,
+)
+def download_data(n_clicks, csv_data):
+    return {
+        "content": csv_data,
+        "filename": "data.csv",
+        "type": "text/csv",
+    }
 
 
 @app.callback(
