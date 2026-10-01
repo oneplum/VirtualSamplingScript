@@ -69,7 +69,7 @@ parquet_files = sorted(args.data_dir.glob("*.parquet"))
 
 print(f"Found {len(parquet_files)} parquet files:")
 
-lf = pl.scan_parquet(parquet_files).with_columns(
+lf = pl.scan_parquet(parquet_files).group_by(FILTER_COLS).agg([pl.col(metric_col).mean() for metric_col in METRIC_COLS]).with_columns(
     pl.concat_str(["method", "virtual_sampling_method"], separator="-").alias(
         "sampling_method"
     )
@@ -428,18 +428,25 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
         for col in [GROUP_COL, sel_facet, X_COL]
     }
 
-    pdf = df.to_pandas()
-
     x_map = {value: i for i, value in enumerate(category_orders[X_COL])}
-    pdf["_x"] = pdf[X_COL].map(x_map)
 
     group_order = category_orders[GROUP_COL]
     n_groups = len(group_order)
     group_width = 0.7
     group_map = {group: i for i, group in enumerate(group_order)}
 
-    pdf["_x"] += pdf[GROUP_COL].map(
-        lambda group: (group_map[group] - (n_groups - 1) / 2) * group_width / n_groups
+
+    pdf = df.with_columns(
+        (
+            pl.col(X_COL).replace_strict(x_map).cast(pl.Float64)
+            +
+            (
+                pl.col(GROUP_COL).replace_strict(group_map).cast(pl.Float64)
+                - (n_groups - 1) / 2
+            )
+            * group_width
+            / n_groups
+        ).alias("_x")
     )
 
     fig = px.scatter(
@@ -480,17 +487,18 @@ def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
             facet = point[1]
             x_category = point[2]
 
-            rows = pdf[
-                (pdf[GROUP_COL] == group)
-                & (pdf[sel_facet] == facet)
-                & (pdf[X_COL] == x_category)
-            ]
+            rows = pdf.filter(
+                (pl.col(GROUP_COL) == group)
+                & (pl.col(sel_facet) == facet)
+                & (pl.col(X_COL) == x_category)
+            )
 
-            if rows.empty:
+
+            if rows.is_empty():
                 continue
 
-            x = rows["_x"].iloc[0]
-            y = rows[f"{Y_COL}_diff"].iloc[0]
+            x = rows["_x"].item()
+            y = rows[f"{Y_COL}_diff"].item()
 
             stem_x.extend([x, x, None])
             stem_y.extend([0, y, None])
@@ -675,6 +683,6 @@ server = app.server
 
 if __name__ == "__main__":
     app.run(
-        debug=False,
+        debug=True,
         host="0.0.0.0",
     )
