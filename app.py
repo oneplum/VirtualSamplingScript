@@ -60,6 +60,11 @@ args = parser.parse_args()
 
 print("Starting...")
 
+
+FILTER_COLS = [col.name for col in fields(FrameBasic)]
+
+METRIC_COLS = [f"blti_{i}" for i in range(BLTI_K)]
+
 parquet_files = sorted(args.data_dir.glob("*.parquet"))
 
 print(f"Found {len(parquet_files)} parquet files:")
@@ -70,14 +75,11 @@ lf = pl.scan_parquet(parquet_files).with_columns(
     )
 )
 
-FILTER_COLS = [col.name for col in fields(FrameBasic)]
 FILTER_VALUES = {}
 for col in FILTER_COLS:
     values = lf.select(pl.col(col).unique()).collect().to_series().to_list()
 
     FILTER_VALUES[col] = COL_META[col].order_vals(values)
-
-METRIC_COLS = [f"blti_{i}" for i in range(BLTI_K)]
 
 Y_COL = "blti"
 X_COL = "band_idx"
