@@ -99,7 +99,7 @@ def compute_blti(paths: list[Path]) -> dict[int, list[float]]:
             next_image, next_bands = next_data.result()
 
             if t < len(paths) - 2:
-                next_data = io_executor.submit(_load_and_blur, paths[t+1])
+                next_data = io_executor.submit(_load_and_blur, paths[t+2])
 
             weight = _edge_weights(curr_image)
 
