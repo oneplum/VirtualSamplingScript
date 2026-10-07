@@ -1,28 +1,7 @@
 #!/usr/bin/env python3
 
-"""
-Dash application for visualizing BLTI results.
-
-Input columns:
-    dataset_name,
-    level,
-    method,
-    lighting_enabled,
-    true_samples,
-    virtual_sampling_method,
-    virtual_samples,
-    trans_type,
-    trans_axis,
-    frame_idx,
-    blti_0,
-    blti_1,
-    blti_2,
-    blti_3,
-    blti_4,
-    blti_5
-"""
-
 import argparse
+import math
 from dataclasses import fields
 from pathlib import Path
 
@@ -31,10 +10,20 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 import polars as pl
-from dash import ALL, Input, Output, State, ctx, dcc, html
+from dash import ALL, Input, Output, ctx, dcc, html
+from plotly.subplots import make_subplots
 
 from blti import BLTI_K, GAUSSIAN_SCALES
 from common import COL_META, ColMeta, FrameBasic
+from data import (
+    SEQ_COLS,
+    agg_data,
+    diff_data,
+    filter_data,
+    load_col_data,
+    load_data,
+    to_long,
+)
 
 COL_META["band_idx"] = ColMeta(
     label="Band Center Scale",
@@ -48,273 +37,54 @@ COL_META["blti"] = ColMeta(
     label="BLTI",
 )
 
-parser = argparse.ArgumentParser()
-parser.add_argument(
-    "-d",
-    "--data-dir",
-    type=Path,
-    required=True,
-    help="Path to parquet data",
-)
-args = parser.parse_args()
 
-print("Starting...")
+def build_argument_parser() -> argparse.ArgumentParser:
 
+    parser = argparse.ArgumentParser(description="Compute BLTI for image sequences.")
+
+    parser.add_argument(
+        "-d",
+        "--data-dir",
+        type=Path,
+        required=True,
+        help="Path to parquet data",
+    )
+
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable Dash debug mode.",
+    )
+
+    return parser
 
 FILTER_COLS = [col.name for col in fields(FrameBasic)]
-
 METRIC_COLS = [f"blti_{i}" for i in range(BLTI_K)]
-
-parquet_files = sorted(args.data_dir.glob("*.parquet"))
-
-print(f"Found {len(parquet_files)} parquet files:")
-
-lf = pl.scan_parquet(parquet_files).group_by(FILTER_COLS).agg([pl.col(metric_col).mean() for metric_col in METRIC_COLS]).with_columns(
-    pl.concat_str(["method", "virtual_sampling_method"], separator="-").alias(
-        "sampling_method"
-    )
-)
-
-FILTER_VALUES = {}
-for col in FILTER_COLS:
-    values = lf.select(pl.col(col).unique()).collect().to_series().to_list()
-
-    FILTER_VALUES[col] = COL_META[col].order_vals(values)
 
 Y_COL = "blti"
 X_COL = "band_idx"
 GROUP_COL = "sampling_method"
 FACET_COLS = [
-    "method",
     "dataset_name",
-    "lighting_enabled",
     "level",
+    "lighting_enabled",
     "trans_type",
     "trans_axis",
+    "method",
 ]
 
-app = dash.Dash(__name__)
-
-app.layout = html.Div(
-    [
-        html.H1(
-            (
-                "Evaluating Temporal Coherance of reconstruction methods in Volume Rendering"
-            ),
-            style={
-                "textAlign": "center",
-                "fontFamily": "sans-serif",
-                "marginBottom": "10px",
-            },
-        ),
-        html.Div(
-            [
-                html.H4("Filter By:"),
-                html.Div(
-                    [
-                        html.Div(
-                            [
-                                html.Label(
-                                    f"{COL_META[filter_col].label}: ",
-                                    style={"fontWeight": "bold"},
-                                ),
-                                dcc.Dropdown(
-                                    id={
-                                        "type": "filter-dropdown",
-                                        "column": filter_col,
-                                    },
-                                    options=[
-                                        {
-                                            "label": COL_META[filter_col].get_val_label(
-                                                val
-                                            ),
-                                            "value": val,
-                                        }
-                                        for val in FILTER_VALUES[filter_col]
-                                    ],
-                                    value=(
-                                        ["none"]
-                                        if filter_col == "virtual_sampling_method"
-                                        else None
-                                    ),
-                                    clearable=True,
-                                    debounce=True,
-                                    closeOnSelect=False,
-                                    multi=True,
-                                ),
-                            ],
-                            style={
-                                "flex": "1",
-                                "minWidth": "0",
-                                "margin": "auto 2px",
-                            },
-                        )
-                        for filter_col in FILTER_COLS
-                    ],
-                    style={
-                        "display": "flex",
-                        "width": "100%",
-                        "marginBottom": "15px",
-                    },
-                ),
-                html.Div(
-                    [
-                        html.Div(
-                            [
-                                html.Label(
-                                    "Facet By: ",
-                                    style={"fontWeight": "bold"},
-                                ),
-                                dcc.Dropdown(
-                                    id="facet-dropdown",
-                                    options=[
-                                        {
-                                            "label": COL_META[facet_col].label,
-                                            "value": facet_col,
-                                        }
-                                        for facet_col in FACET_COLS
-                                    ],
-                                    value="method",
-                                    clearable=False,
-                                ),
-                            ],
-                            style={
-                                "minWidth": "0",
-                                "flex": "1",
-                                "margin": "auto 2px",
-                            },
-                        ),
-                        html.Div(
-                            [
-                                html.Label(
-                                    "Action: ",
-                                    style={"fontWeight": "bold"},
-                                ),
-                                html.Div(
-                                    [
-                                        html.Button("Download CSV", id="download-csv-btn"),
-
-                                        dcc.Download(id="download-csv"),
-                                    ],
-                                    style={}
-                                ),
-                            ],
-                            style={
-                                "minWidth": "0",
-                                "flex": "1",
-                                "margin": "auto 2px",
-                            },
-                        ),
-                    ],
-                    style={
-                        "width": "100%",
-                        "display": "flex",
-                    },
-                ),
-            ],
-            style={
-                "width": "95%",
-                "margin": "10px auto",
-            },
-        ),
-        html.Div(
-            [dcc.Graph(id="main-chart")],
-            style={
-                "width": "95%",
-                "margin": "20px auto",
-            },
-        ),
-        html.Div(
-            [
-                html.Div(
-                    [dcc.Graph(id="baseline-chart")],
-                    style={
-                        "flex": "1",
-                        "minWidth": "0",
-                    },
-                ),
-                html.Div(
-                    [dcc.Graph(id="cmp-chart")],
-                    style={
-                        "flex": "1",
-                        "minWidth": "0",
-                    },
-                ),
-            ],
-            style={"width": "95%", "display": "flex", "margin": "20px auto"},
-        ),
-    ]
-)
-
-
-def filter_exprs(filter_list) -> tuple[list, list]:
-    method_filters = []
-    other_filters = []
-    filter_dict = {
-        filter_item["id"]["column"]: filter_item["value"] for filter_item in filter_list
-    }
-    filter_virtual_method = filter_dict.get("virtual_sampling_method", [])
-    filter_true_samples = filter_dict.get("true_samples", [])
-    filter_virtual_samples = filter_dict.get("virtual_samples", [])
-    if (
-        filter_true_samples
-        and 1 not in filter_true_samples
-        and (
-            not filter_virtual_method or any(x != "none" for x in filter_virtual_method)
-        )
-    ):
-        filter_dict["true_samples"].append(1)
-    if (
-        filter_virtual_samples
-        and 0 not in filter_virtual_samples
-        and (not filter_virtual_method or "none" in filter_virtual_method)
-    ):
-        filter_dict["virtual_samples"].append(0)
-
-    for col_name, filter_val in filter_dict.items():
-        if not filter_val:
-            continue
-
-        if len(filter_val) == len(FILTER_VALUES[col_name]):
-            continue
-
-        if col_name in ["method", "virtual_sampling_method", "virtual_samples"]:
-            method_filters.append(pl.col(col_name).is_in(filter_val))
-        else:
-            other_filters.append(pl.col(col_name).is_in(filter_val))
-
-    return method_filters, other_filters
-
-
-def process_data(
-    lf: pl.LazyFrame, filter_list: list, groupby: list[str], aggs: list[str]
-) -> pl.LazyFrame:
-    idx_cols = groupby + [GROUP_COL]
-    select_cols = idx_cols + METRIC_COLS
-    agg_map = {
-        "mean": pl.col(Y_COL).mean(),
-        "median": pl.col(Y_COL).median(),
-        "p10": pl.col(Y_COL).quantile(0.10),
-        "p90": pl.col(Y_COL).quantile(0.90),
-    }
-    if len(aggs) == 1:
-        agg_exprs = agg_map[aggs[0]]
-    else:
-        agg_exprs = [agg_map[agg_expr].alias(agg_expr) for agg_expr in aggs]
-
-    if filter_list:
-        flf = lf.filter(*filter_list)
-    else:
-        flf = lf
-    return (
-        flf
-        .select(select_cols)
-        .unpivot(on=METRIC_COLS, index=idx_cols, variable_name=X_COL, value_name=Y_COL)
-        .group_by(idx_cols + [X_COL])
-        .agg(agg_exprs)
-        .sort(idx_cols + [X_COL])
-    )
-
+COLORS = [
+    "#1f77b4",
+    "#ff7f0e",
+    "#2ca02c",
+    "#d62728",
+    "#9467bd",
+    "#8c564b",
+    "#e377c2",
+    "#7f7f7f",
+    "#bcbd22",
+    "#17becf",
+]
 
 def line_chart(df: pl.DataFrame, sel_facet: str, sel_method: str) -> go.Figure:
     categroy_orders = {
@@ -420,269 +190,419 @@ def line_chart(df: pl.DataFrame, sel_facet: str, sel_method: str) -> go.Figure:
     return fig
 
 
-def lollipop_chart(df: pl.DataFrame, sel_facet: str) -> go.Figure:
-    category_orders = {
-        col: COL_META[col].order_vals(df.get_column(col).unique().to_list())
-        if col in COL_META
-        else df.get_column(col).unique().to_list()
-        for col in [GROUP_COL, sel_facet, X_COL]
-    }
+# @app.callback(
+#     Output("cmp-chart", "figure"),
+#     Input("main-chart", "clickData"),
+#     Input(
+#         {"type": "filter-dropdown", "column": ALL},
+#         "value",
+#     ),
+#     Input("facet-dropdown", "value"),
+# )
+# def update_cmp_chart(click_data, filter_vals, sel_facet):
+#     if click_data is None:
+#         return go.Figure()
 
-    x_map = {value: i for i, value in enumerate(category_orders[X_COL])}
+#     point = click_data["points"][0]
 
-    group_order = category_orders[GROUP_COL]
-    n_groups = len(group_order)
-    group_width = 0.7
-    group_map = {group: i for i, group in enumerate(group_order)}
+#     custom_data = point["customdata"]
 
+#     method_filters, other_filters = filter_exprs(ctx.inputs_list[1])
+#     groupby = [sel_facet]
+#     sel_method = custom_data[0]
 
-    pdf = df.with_columns(
-        (
-            pl.col(X_COL).replace_strict(x_map).cast(pl.Float64)
-            +
-            (
-                pl.col(GROUP_COL).replace_strict(group_map).cast(pl.Float64)
-                - (n_groups - 1) / 2
-            )
-            * group_width
-            / n_groups
-        ).alias("_x")
-    )
+#     filters = other_filters + [(pl.col("sampling_method") == sel_method)]
+#     baggs = ["mean", "median", "p10", "p90"]
+#     blf = process_data(lf, filters, groupby, baggs)
+#     bdf = blf.collect()
 
-    fig = px.scatter(
-        pdf,
-        x="_x",
-        y=f"{Y_COL}_diff",
-        color=GROUP_COL,
-        facet_col=sel_facet,
-        facet_col_wrap=2,
-        facet_col_spacing=0.12,
-        facet_row_spacing=0.12,
-        category_orders=category_orders,
-        color_discrete_sequence=px.colors.qualitative.Dark24 + px.colors.qualitative.Light24,
-        custom_data=[GROUP_COL, sel_facet, X_COL],
-        labels={
-            f"{Y_COL}_diff": "Δ BLTI to linear",
-            "_x": COL_META[X_COL].label,
-        },
-    )
-
-    fig.update_traces(
-        mode="markers",
-        marker=dict(size=10),
-    )
-
-    for trace in list(fig.data):
-        if trace.mode != "markers":
-            continue
-
-        if trace.customdata is None:
-            continue
-
-        stem_x = []
-        stem_y = []
-
-        for point in trace.customdata:
-            group = point[0]
-            facet = point[1]
-            x_category = point[2]
-
-            rows = pdf.filter(
-                (pl.col(GROUP_COL) == group)
-                & (pl.col(sel_facet) == facet)
-                & (pl.col(X_COL) == x_category)
-            )
+#     return line_chart(bdf, sel_facet, sel_method)
 
 
-            if rows.is_empty():
-                continue
-
-            x = rows["_x"].item()
-            y = rows[f"{Y_COL}_diff"].item()
-
-            stem_x.extend([x, x, None])
-            stem_y.extend([0, y, None])
-
-        fig.add_trace(
-            go.Scatter(
-                x=stem_x,
-                y=stem_y,
-                mode="lines",
-                line=dict(
-                    color=trace.marker.color,
-                    width=2,
-                ),
-                showlegend=False,
-                hoverinfo="skip",
-                xaxis=trace.xaxis,
-                yaxis=trace.yaxis,
-            )
+def lollipop_plot(df: pl.DataFrame, facet_cols: list, group_cols: list) -> go.Figure:
+    if df.is_empty():
+        return go.Figure().update_layout(
+            title="No data"
         )
 
-    fig.add_hline(
-        y=0,
-        line_width=1,
-        line_color="black",
+    facets = df.select(facet_cols).unique().sort(facet_cols)
+
+    ncols = 2
+    nrows = math.ceil(len(facets) / ncols)
+
+    fig = make_subplots(
+        rows=nrows,
+        cols=ncols,
+        shared_xaxes=False,
+        shared_yaxes=True,
+        subplot_titles=[
+            " - ".join(map(str, facet))
+            for facet in facets.iter_rows()
+        ],
+    )
+
+    band_labels = list(COL_META[X_COL].values.values())
+
+    for facet_idx, facet_values in enumerate(facets.iter_rows()):
+        row = facet_idx // ncols + 1
+        col = facet_idx % ncols + 1
+        
+        rows = df.filter(
+            pl.all_horizontal(
+                [pl.col(col) == val for col, val in zip(facet_cols, facet_values)]
+            )
+        ).sort([*group_cols, X_COL])
+
+        groups = rows.select(group_cols).unique().sort(group_cols)
+
+        n_groups = len(groups)
+        width = 0.6 / max(1, n_groups)
+
+        for group_idx, group_values in enumerate(groups.iter_rows()):
+            data = rows.filter(
+                pl.all_horizontal(
+                    [pl.col(col) == val for col, val in zip(group_cols, group_values)]
+                )
+            ).sort(X_COL)
+
+            if data.is_empty():
+                continue
+
+            diff = data["diff"].to_numpy()
+
+            band_x = data[X_COL].to_numpy()
+            band_x = band_x + (group_idx - (n_groups - 1) / 2) * width
+            name = " / ".join(map(str, group_values))
+
+            stem_x = []
+            stem_y = []
+            for x, y in zip(band_x, diff):
+                stem_x.extend([x, x, None])
+                stem_y.extend([0, y, None])
+
+            color = COLORS[group_idx % len(COLORS)]
+            
+            fig.add_trace(
+                go.Scatter(
+                    x=stem_x,
+                    y=stem_y,
+                    mode="lines",
+                    line=dict(width=2, color=color),
+                    showlegend=False,
+                    hoverinfo="skip",
+                    legendgroup=name
+                ),
+                row=row,
+                col=col,
+            )
+
+            fig.add_trace(
+                go.Scatter(
+                    x=band_x,
+                    y=diff,
+                    mode="markers",
+                    name=name,
+                    marker=dict(size=9, color=color),
+                    legendgroup=name,
+                    showlegend=(
+                        facet_idx == 0
+                    ),
+                    customdata=[
+                        [name, band_labels[_x]]
+                        for _x in data[X_COL]
+                    ],
+                    hovertemplate=(
+                        "Method: %{customdata[0]}"
+                        "<br>"
+                        "Band: %{customdata[1]}"
+                        "<br>"
+                        "ΔBLTI: %{y:.4f}"
+                        "<extra></extra>"
+                    ),
+                ),
+                row=row,
+                col=col,
+            )
+
+        fig.add_hline(
+            y=0,
+            line_width=1,
+            line_color="black",
+            row=row,
+            col=col,
+        )
+
+        fig.update_xaxes(
+            tickmode="array",
+            tickvals=band_x,
+            ticktext=band_labels,
+            row=row,
+            col=col,
+        )
+
+    fig.update_layout(
+        title="BLTI Difference to Linear",
+        height=450 * nrows,
+        hovermode="closest",
+        template="plotly_white",
+        legend_title="Method",
     )
 
     fig.update_xaxes(
-        matches=None,
-        showticklabels=True,
-        tickmode="array",
-        tickvals=list(range(BLTI_K)),
-        ticktext=list(COL_META[X_COL].values.values()),
-        showgrid=False,
-        # title_text=COL_META[X_COL].label,
+        title="Band Center",
     )
 
     fig.update_yaxes(
-        matches=None,
-        showticklabels=True,
-        showline=True,
-        linecolor="black",
-        linewidth=1,
-        zeroline=True,
-        zerolinecolor="black",
-        zerolinewidth=1,
-        title_text="Δ BLTI to linear",
-    )
-
-    dynamic_height = (len(category_orders[sel_facet]) / 2 * 250) + 250
-
-    fig.update_layout(
-        template="plotly_white",
-        height=dynamic_height,
-        # title="Δ BLTI Delta vs line",
-        legend_title_text=COL_META[GROUP_COL].label,
-    )
-
-    fig.for_each_annotation(
-        lambda annotation: annotation.update(
-            text=COL_META[sel_facet].get_val_label(
-                next(
-                    v
-                    for v in category_orders[sel_facet]
-                    if str(v) == annotation.text.split("=")[-1]
-                )
-            )
-            if sel_facet in COL_META
-            else annotation.text
-        )
-    )
-
-    fig.for_each_trace(
-        lambda trace: trace.update(
-            name=COL_META[GROUP_COL].get_val_label(trace.name)
-            if trace.name in group_order
-            else trace.name
-        )
+        title="ΔBLTI to Linear",
     )
 
     return fig
 
 
-@app.callback(
-    Output("main-chart", "figure"),
-    Output("baseline-chart", "figure"),
-    Input(
-        {"type": "filter-dropdown", "column": ALL},
-        "value",
-    ),
-    Input("facet-dropdown", "value"),
-)
-def update_main_chart(filter_vals, sel_facet):
-    method_filters, other_filters = filter_exprs(ctx.inputs_list[0])
-    groupby = [sel_facet]
+def make_layout(filter_data: dict[str, list] | None = None, facet_cols: list[str] | None = None) -> html.Div:
+    return html.Div([
+        html.H1(
+            (
+                "Evaluating Temporal Coherance of reconstruction methods in Volume Rendering"
+            ),
+            style={
+                "textAlign": "center",
+                "fontFamily": "sans-serif",
+                "marginBottom": "10px",
+            },
+        ),
+        html.Div(
+            [
+                html.H4("Filter By:"),
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                html.Label(
+                                    f"{COL_META[filter_col].label}: ",
+                                    style={"fontWeight": "bold"},
+                                ),
+                                dcc.Dropdown(
+                                    id={
+                                        "type": "filter-dropdown",
+                                        "column": filter_col,
+                                    },
+                                    options=[
+                                        {
+                                            "label": COL_META[filter_col].get_val_label(
+                                                val
+                                            ),
+                                            "value": val,
+                                        }
+                                        for val in filter_values
+                                    ],
+                                    value=(
+                                        ["none"]
+                                        if filter_col == "virtual_sampling_method"
+                                        else None
+                                    ),
+                                    clearable=True,
+                                    debounce=True,
+                                    closeOnSelect=False,
+                                    multi=True,
+                                ),
+                            ],
+                            style={
+                                "flex": "1",
+                                "minWidth": "0",
+                                "margin": "auto 2px",
+                            },
+                        )
+                        for filter_col, filter_values in filter_data.items()
+                    ],
+                    style={
+                        "display": "flex",
+                        "width": "100%",
+                        "marginBottom": "15px",
+                    },
+                ),
+                html.Div(
+                    [
+                        html.Div(
+                            [
+                                html.Label(
+                                    "Facet By: ",
+                                    style={"fontWeight": "bold"},
+                                ),
+                                dcc.Dropdown(
+                                    id="facet-dropdown",
+                                    options=[
+                                        {
+                                            "label": COL_META[facet_col].label,
+                                            "value": facet_col,
+                                        }
+                                        for facet_col in facet_cols
+                                    ],
+                                    value=["method"],
+                                    clearable=False,
+                                    debounce=True,
+                                    closeOnSelect=False,
+                                    multi=True
+                                ),
+                            ],
+                            style={
+                                "minWidth": "0",
+                                "flex": "1",
+                                "margin": "auto 2px",
+                            },
+                        ),
+                        html.Div(
+                            [
+                                html.Label(
+                                    "Action: ",
+                                    style={"fontWeight": "bold"},
+                                ),
+                                html.Div(
+                                    [
+                                        html.Button("Download CSV", id="download-csv-btn"),
 
-    baseline_filters = [(pl.col("sampling_method") == "lin-none")] + other_filters
-    baggs = ["mean", "median", "p10", "p90"]
-    blf = process_data(lf, baseline_filters, groupby, baggs)
+                                        dcc.Download(id="download-csv"),
+                                    ],
+                                    style={}
+                                ),
+                            ],
+                            style={
+                                "minWidth": "0",
+                                "flex": "1",
+                                "margin": "auto 2px",
+                            },
+                        ),
+                    ],
+                    style={
+                        "width": "100%",
+                        "display": "flex",
+                    },
+                ),
+            ],
+            style={
+                "width": "95%",
+                "margin": "10px auto",
+            },
+        ),
+        html.Div(
+            [dcc.Graph(id="main-chart")],
+            style={
+                "width": "95%",
+                "margin": "20px auto",
+            },
+        ),
+        # html.Div(
+        #     [
+        #         html.Div(
+        #             [dcc.Graph(id="baseline-chart")],
+        #             style={
+        #                 "flex": "1",
+        #                 "minWidth": "0",
+        #             },
+        #         ),
+        #         html.Div(
+        #             [dcc.Graph(id="cmp-chart")],
+        #             style={
+        #                 "flex": "1",
+        #                 "minWidth": "0",
+        #             },
+        #         ),
+        #     ],
+        #     style={"width": "95%", "display": "flex", "margin": "20px auto"},
+        # ),
+    ])
 
-    filters = (
-        method_filters + other_filters
+
+def register_callback(app: dash.Dash, lf: pl.LazyFrame) -> None:
+    @app.callback(
+        Output("main-chart", "figure"),
+        # Output("baseline-chart", "figure"),
+        Input(
+            {"type": "filter-dropdown", "column": ALL},
+            "value",
+        ),
+        Input("facet-dropdown", "value"),
     )
-    merge_cols = [X_COL]
-    if sel_facet != "method":
-        merge_cols.append(sel_facet)
-    dflf = (
-        process_data(lf, filters, groupby, ["mean"])
-        .join(blf.select(merge_cols + ["mean"]), on=merge_cols, how="left")
-        .with_columns((pl.col(Y_COL) - pl.col("mean")).alias(f"{Y_COL}_diff"))
-        .drop(["mean", Y_COL])
-    )
+    def update_main_chart(filter_vals, sel_facet):
+        filter_by = {filter_ipt["id"]["column"]: filter_ipt["value"] for filter_ipt in ctx.inputs_list[0] if filter_ipt["value"]}
 
-    dfdf = dflf.sort([sel_facet, GROUP_COL, X_COL]).collect()
-    fig_lollipop = lollipop_chart(dfdf, sel_facet)
+        flf = filter_data(lf, filter_by)
+        data_rows, data_seq = flf.select([pl.len(),pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
+        print(
+            f"Filtered data: "
+            f"{data_rows} rows, "
+            f"{data_seq} sequences."
+        )
 
-    del dfdf
-
-    bdf = blf.sort([sel_facet, X_COL]).collect()
-    fig_line = line_chart(bdf, sel_facet, "lin-none")
-    del bdf
-
-    return fig_lollipop, fig_line
-
-
-@app.callback(
-    Output("download-csv", "data"),
-    Input("download-csv-btn", "n_clicks"),
-    State(
-        {"type": "filter-dropdown", "column": ALL},
-        "value",
-    ),
-    State("facet-dropdown", "value"),
-    prevent_initial_call=True,
-)
-def download_data(n_clicks, filter_vals, sel_facet):
-    if not n_clicks:
-        raise dash.exceptions.PreventUpdate
-
-    method_filters, other_filters = filter_exprs(ctx.states_list[0])
-    groupby = [sel_facet]
-    filters = (
-        method_filters + other_filters
-    )
-    flf = process_data(lf, filters, groupby, ["mean"])
-    return {
-        "content": flf.collect().write_csv(),
-        "filename": "data.csv",
-        "type": "text/csv",
-    }
+        facet_cols = sel_facet
+        group_cols = [
+            "method",
+            "virtual_sampling_method",
+            # "true_samples",
+            # "virtual_samples",
+        ]
+        baselines = {
+            "method": "lin",
+            "virtual_sampling_method": "none",
+            # "true_samples": 15,
+            # "virtual_samples": 0,
+        }
+        df = diff_data(flf, facet_cols, group_cols, baselines)
 
 
-@app.callback(
-    Output("cmp-chart", "figure"),
-    Input("main-chart", "clickData"),
-    Input(
-        {"type": "filter-dropdown", "column": ALL},
-        "value",
-    ),
-    Input("facet-dropdown", "value"),
-)
-def update_cmp_chart(click_data, filter_vals, sel_facet):
-    if click_data is None:
-        return go.Figure()
+        return lollipop_plot(df, facet_cols, group_cols)
 
-    point = click_data["points"][0]
+    # @app.callback(
+    #     Output("download-csv", "data"),
+    #     Input("download-csv-btn", "n_clicks"),
+    #     State(
+    #         {"type": "filter-dropdown", "column": ALL},
+    #         "value",
+    #     ),
+    #     State("facet-dropdown", "value"),
+    #     prevent_initial_call=True,
+    # )
+    # def download_data(n_clicks, filter_vals, sel_facet):
+    #     if not n_clicks:
+    #         raise dash.exceptions.PreventUpdate
 
-    custom_data = point["customdata"]
+    #     method_filters, other_filters = filter_exprs(ctx.states_list[0])
+    #     groupby = [sel_facet]
+    #     filters = (
+    #         method_filters + other_filters
+    #     )
+    #     flf = process_data(lf, filters, groupby, ["mean"])
+    #     return {
+    #         "content": flf.collect().write_csv(),
+    #         "filename": "data.csv",
+    #         "type": "text/csv",
+    #     }
 
-    method_filters, other_filters = filter_exprs(ctx.inputs_list[1])
-    groupby = [sel_facet]
-    sel_method = custom_data[0]
 
-    filters = other_filters + [(pl.col("sampling_method") == sel_method)]
-    baggs = ["mean", "median", "p10", "p90"]
-    blf = process_data(lf, filters, groupby, baggs)
-    bdf = blf.collect()
+def main() -> int:
+    args = build_argument_parser().parse_args()
 
-    return line_chart(bdf, sel_facet, sel_method)
+    print("Starting...")
 
+    lf = load_data(args.data_dir)
 
-server = app.server
+    if lf is None:
+        raise FileNotFoundError(f"No parquet or CSV files found in {args.data_dir}")
 
-if __name__ == "__main__":
+    filter_values = load_col_data(lf, FILTER_COLS)
+
+    app = dash.Dash(__name__, title="BLTI Analysis")
+
+    app.layout = make_layout(filter_values, FACET_COLS)
+
+    register_callback(app, lf)
+
     app.run(
-        debug=False,
+        debug=args.debug,
         host="0.0.0.0",
     )
+
+    return 0
+
+if __name__ == "__main__":
+    raise SystemExit(main())
