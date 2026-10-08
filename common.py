@@ -12,7 +12,7 @@ from PIL import Image
 OutputType = Literal["csv", "parquet"]
 
 METHOD_LABELS = {
-    "lin": "linear",
+    "lin": "Linear",
     "quadB": "Quadratic B-Spline",
     "quadBf": "Quadratic B-Spline Prefiltered",
     "cubicB": "Cubic B-Spline",
@@ -108,13 +108,19 @@ COL_META = {
         },
         order=[False, True],
     ),
-    "true_samples": ColMeta(label="Sampling Rate"),
+    "true_samples": ColMeta(
+        label="Sampling Rate",
+        values={i: f"{i} Samples" for i in range(16)},
+    ),
     "virtual_sampling_method": ColMeta(
         label="Virtual Method",
         values=VIRTUAL_METHOD_LABELS,
         order=VIRTUAL_METHOD_ORDER,
     ),
-    "virtual_samples": ColMeta(label="Virtual Samples"),
+    "virtual_samples": ColMeta(
+        label="Virtual Samples",
+        values={i: f"{i} Samples" for i in range(20)}
+    ),
     "trans_type": ColMeta(
         label="Transform Type",
         values=TRANS_TYPE_LABELS,
