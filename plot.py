@@ -1,25 +1,23 @@
 #!/usr/bin/env python3
 
 import math
-import polars as pl
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-from typing import Any
 
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
+import polars as pl
+from plotly.subplots import make_subplots
 
 from blti import BLTI_K, GAUSSIAN_SCALES
 from common import COL_META, ColMeta
 from data import DELTA_COL, X_COL, Y_COL
-
 
 COL_META[X_COL] = ColMeta(
     label="Band Center Scale",
     values={
         k: (f"{np.sqrt(GAUSSIAN_SCALES[k] * GAUSSIAN_SCALES[k + 1]):.2f}")
         for k in range(BLTI_K)
-    }
+    },
 )
 COL_META[Y_COL] = ColMeta(label="BLTI")
 COL_META[DELTA_COL] = ColMeta(label="ΔBLTI to Linear")
@@ -36,34 +34,17 @@ SETTING_COLORS = [
 ]
 
 
-def _label(col_names: list[str], col_values: list[Any] | tuple[Any, ...]):
-    labels = []
-
-    for col, val in zip(col_names, col_values):
-        if col == "level" and val == 0:
-            continue
-
-        if col == "virtual_sampling_method" and val == "none":
-            continue
-
-        if col == "virtual_samples" and val == 0:
-            continue
-
-        if col in COL_META:
-            labels.append(COL_META[col].get_val_label(val))
-        else:
-            labels.append(val)
-
-    return " ".join(labels)
-
-
-def lollipop_fig(df: pl.DataFrame, facet_cols: list[str], group_cols: list[str]) -> go.Figure:
+def lollipop_fig(
+    df: pl.DataFrame,
+    facet_col: str,
+    group_col: str,
+    x_col: str = X_COL,
+    y_col: str = Y_COL,
+) -> go.Figure:
     if df.is_empty():
-        return go.Figure().update_layout(
-            title="No data"
-        )
+        return go.Figure().update_layout(title="No data")
 
-    facets = df.select(facet_cols).unique(maintain_order=True)
+    facets = df[facet_col].unique(maintain_order=True)
     ncols = 2
     nrows = math.ceil(len(facets) / ncols)
 
@@ -72,41 +53,28 @@ def lollipop_fig(df: pl.DataFrame, facet_cols: list[str], group_cols: list[str])
         cols=ncols,
         shared_xaxes=False,
         shared_yaxes=True,
-        subplot_titles=[
-            _label(facet_cols, facet)
-            for facet in facets.iter_rows()
-        ],
+        subplot_titles=facets.to_list(),
     )
 
-    for facet_idx, facet_values in enumerate(facets.iter_rows()):
+    for facet_idx, facet_value in enumerate(facets.to_list()):
         row = facet_idx // ncols + 1
         col = facet_idx % ncols + 1
-        
-        rows = df.filter(
-            pl.all_horizontal(
-                [pl.col(f_col) == f_val for f_col, f_val in zip(facet_cols, facet_values)]
-            )
-        )
 
-        groups = rows.select(group_cols).unique(maintain_order=True)
+        rows = df.filter(pl.col(facet_col) == facet_value)
+
+        groups = rows[group_col].unique(maintain_order=True)
 
         n_groups = len(groups)
         width = 0.6 / max(1, n_groups)
 
-        for group_idx, group_values in enumerate(groups.iter_rows()):
-            data = rows.filter(
-                pl.all_horizontal(
-                    [pl.col(g_col) == g_val for g_col, g_val in zip(group_cols, group_values)]
-                )
-            )
+        for group_idx, group_value in enumerate(groups.to_list()):
+            data = rows.filter(pl.col(group_col) == group_value)
 
             if data.is_empty():
                 continue
 
-            diff = data[DELTA_COL].to_numpy()
-            band_x = data[X_COL].to_numpy() + (group_idx - (n_groups - 1) / 2) * width
-
-            name = _label(group_cols, group_values)
+            diff = data[y_col].to_numpy()
+            band_x = data[x_col].to_numpy() + (group_idx - (n_groups - 1) / 2) * width
 
             stem_x = []
             stem_y = []
@@ -115,7 +83,7 @@ def lollipop_fig(df: pl.DataFrame, facet_cols: list[str], group_cols: list[str])
                 stem_y.extend([0, y, None])
 
             color = SETTING_COLORS[group_idx % len(SETTING_COLORS)]
-            
+
             fig.add_trace(
                 go.Scatter(
                     x=stem_x,
@@ -124,7 +92,7 @@ def lollipop_fig(df: pl.DataFrame, facet_cols: list[str], group_cols: list[str])
                     line=dict(width=2, color=color),
                     showlegend=False,
                     hoverinfo="skip",
-                    legendgroup=name
+                    legendgroup=group_value,
                 ),
                 row=row,
                 col=col,
@@ -135,9 +103,9 @@ def lollipop_fig(df: pl.DataFrame, facet_cols: list[str], group_cols: list[str])
                     x=band_x,
                     y=diff,
                     mode="markers",
-                    name=name,
+                    name=group_value,
                     marker=dict(size=9, color=color),
-                    legendgroup=name,
+                    legendgroup=group_value,
                     showlegend=(facet_idx == 0),
                     # customdata=[
                     #     [name, band_labels[_x]]
@@ -166,109 +134,96 @@ def lollipop_fig(df: pl.DataFrame, facet_cols: list[str], group_cols: list[str])
 
         fig.update_xaxes(
             tickmode="array",
-            tickvals=data[X_COL].to_list(),
+            tickvals=data[x_col].to_list(),
             ticktext=list(COL_META[X_COL].values.values()),
             row=row,
             col=col,
         )
 
     fig.update_layout(
-        # title="BLTI Difference to Linear",
         height=450 * nrows,
         hovermode="closest",
         template="plotly_white",
-        legend_title="Sampling Method",
-    )
-
-    fig.update_xaxes(
-        title=COL_META[X_COL].label,
-    )
-
-    fig.update_yaxes(
-        title=COL_META[DELTA_COL].label,
+        legend_title=group_col,
     )
 
     return fig
 
 
-def line_fig(df: pl.DataFrame, facet_cols: list[str], group_cols: list[str], y_col: str = Y_COL, one_seq: bool = False) -> go.Figure:
+def line_fig(
+    df: pl.DataFrame,
+    facet_col: str,
+    group_col: str | None = None,
+    x_col: str = X_COL,
+    y_col: str = Y_COL,
+) -> go.Figure:
     if df.is_empty():
-        return go.Figure().update_layout(
-            title="No data"
-        )
+        return go.Figure().update_layout(title="No data")
 
-    facets = df.select(facet_cols).unique(maintain_order=True)
-    facets_label = {"-".join(map(str, _row)): _label(facet_cols, _row) for _row in facets.iter_rows()}
-
-    groups = df.select(group_cols).unique(maintain_order=True)
-    groups_label = {"-".join(map(str, _row)): _label(group_cols, _row) for _row in groups.iter_rows()}
-
-    sel_facet = "_facet"
-    sel_group = "_group"
-    df = df.with_columns(
-        [
-            pl.concat_str(facet_cols, separator="-").replace(facets_label).alias(sel_facet),
-            pl.concat_str(group_cols, separator="-").replace(groups_label).alias(sel_group)
-        ]).drop([*facet_cols, *group_cols])
+    facets = df[facet_col].unique(maintain_order=True)
+    n_facets = len(facets)
+    if n_facets > 10:
+        return go.Figure().update_layout(title="Too many facets")
 
     ncols = 2
-    nrows = math.ceil(len(facets) / ncols)
+    nrows = math.ceil(df[facet_col].n_unique() / ncols)
 
     fig = px.line(
         df,
-        x=X_COL,
+        x=x_col,
         y=y_col,
         markers=True,
-        facet_col=sel_facet,
+        facet_col=facet_col,
         facet_col_wrap=ncols,
         # facet_row_spacing=0.05,
-        color=sel_group,
+        color=group_col,
         labels={
-            y_col: COL_META[Y_COL].label,
-            X_COL: COL_META[X_COL].label,
+            x_col: COL_META[x_col].label if x_col in COL_META else x_col.upper(),
+            y_col: COL_META[y_col].label if y_col in COL_META else y_col.upper(),
         },
     )
-    # fig.data[0].update(name="Mean", showlegend=True)
+    if y_col == "mean":
+        fig.data[0].update(name="Mean", showlegend=True)
 
-    # facets = df[facet_col].unique()
-    # for i, val in enumerate(categroy_orders[sel_facet]):
-    #     sdf = df.filter(pl.col(sel_facet) == val)
+    for facet_idx, facet_val in enumerate(facets):
+        if all(col in df.columns for col in ["p10", "p90"]):
+            rows = df.filter(pl.col(facet_col) == facet_val)
 
-    #     x = sdf[X_COL].to_list()
-    #     p10 = sdf["p10"].to_list()
-    #     p90 = sdf["p90"].to_list()
+            x = rows[x_col].to_list()
+            p10 = rows["p10"].to_list()
+            p90 = rows["p90"].to_list()
 
-    #     row_idx = i + 1
-    #     col_idx = 1
+            row_idx = facet_idx // ncols + 1
+            col_idx = facet_idx % ncols + 1
 
-        # fig.add_trace(
-        #     go.Scatter(
-        #         x=x + x[::-1],
-        #         y=p90 + p10[::-1],
-        #         fill="toself",
-        #         fillcolor="rgba(100, 150, 255, 0.2)",
-        #         line={"color": "rgba(0,0,0,0)"},
-        #         name="10-90% envelope",
-        #         hoverinfo="skip",
-        #         showlegend=(i == 0),
-        #     ),
-        #     row=row_idx,
-        #     col=col_idx,
-        # )
+            fig.add_trace(
+                go.Scatter(
+                    x=x + x[::-1],
+                    y=p90 + p10[::-1],
+                    fill="toself",
+                    fillcolor="rgba(100, 150, 255, 0.2)",
+                    line={"color": "rgba(0,0,0,0)"},
+                    name="10-90% envelope",
+                    hoverinfo="skip",
+                    showlegend=(facet_idx == 0),
+                ),
+                row=row_idx,
+                col=col_idx,
+            )
 
-        # fig.add_trace(
-        #     go.Scatter(
-        #         x=x,
-        #         y=sdf["median"],
-        #         mode="lines+markers",
-        #         name="Median",
-        #         line=dict(color="orange"),
-        #         showlegend=(i == 0),
-        #     ),
-        #     row=row_idx,
-        #     col=col_idx,
-        # )
-
+        if "median" in df.columns:
+            fig.add_trace(
+                go.Scatter(
+                    x=x,
+                    y=rows["median"],
+                    mode="lines+markers",
+                    name="Median",
+                    line=dict(color="orange"),
+                    showlegend=(facet_idx == 0),
+                ),
+                row=row_idx,
+                col=col_idx,
+            )
 
     fig.update_layout(
         # title={
@@ -278,20 +233,16 @@ def line_fig(df: pl.DataFrame, facet_cols: list[str], group_cols: list[str], y_c
         # },
         template="plotly_white",
         height=(nrows * 250) + 200,
-        xaxis_title=COL_META[X_COL].label,
-        yaxis_title=COL_META[Y_COL].label,
     )
 
     fig.update_xaxes(
         tickmode="array",
-        tickvals=list(range(BLTI_K)),
+        tickvals=df[x_col].unique(maintain_order=True).to_list(),
         ticktext=list(COL_META[X_COL].values.values()),
     )
 
     fig.for_each_annotation(
-        lambda annotation: annotation.update(
-            text=facets_label.get(annotation.text.split("=")[-1], annotation.text.split("=")[-1])
-        )
+        lambda annotation: annotation.update(text=(annotation.text.split("=")[-1]))
     )
 
     # fig.data = (
@@ -300,7 +251,6 @@ def line_fig(df: pl.DataFrame, facet_cols: list[str], group_cols: list[str], y_c
     # )
 
     return fig
-
 
 
 # def diff_plot(df: pl.DataFrame, facet_cols: list, group_cols: list) -> None:

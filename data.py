@@ -30,7 +30,7 @@ from typing import Any
 import polars as pl
 
 from blti import BLTI_K
-from common import FrameBasic, DATASET_ORDER, METHOD_ORDER, VIRTUAL_METHOD_ORDER
+from common import DATASET_ORDER, METHOD_ORDER, VIRTUAL_METHOD_ORDER, FrameBasic
 
 SEQ_COLS = [field.name for field in fields(FrameBasic)]
 METRIC_COLS = [f"blti_{i}" for i in range(BLTI_K)]
@@ -49,8 +49,9 @@ AGG_EXPRS = {
 COL_ORDERS = {
     "dataset_name": DATASET_ORDER,
     "method": METHOD_ORDER,
-    "virtual_sampling_method": VIRTUAL_METHOD_ORDER
+    "virtual_sampling_method": VIRTUAL_METHOD_ORDER,
 }
+
 
 def load_data(path: Path) -> pl.LazyFrame | None:
     parquet_files = sorted(path.glob("*.parquet"))
@@ -149,37 +150,35 @@ def to_long(lf: pl.LazyFrame) -> pl.LazyFrame:
 
 
 def process_data(
-    lf:pl.LazyFrame, 
+    lf: pl.LazyFrame,
     filters: dict[str, Any],
     facet_cols: list,
     group_cols: list,
     baselines: dict[str, Any] | None = None,
     use_frame: bool = False,
-    debug: bool = False
+    debug: bool = False,
 ) -> pl.LazyFrame:
     flf = filter_data(lf, filters)
 
     if debug:
-        data_rows, data_seq = flf.select([pl.len(),pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
-        print(
-            f"Filtered data: "
-            f"{data_rows} rows, "
-            f"{data_seq} sequences."
+        data_rows, data_seq = (
+            flf.select([pl.len(), pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
         )
+        print(f"Filtered data: {data_rows} rows, {data_seq} sequences.")
 
     if not use_frame:
-        flf = agg_data(flf, SEQ_COLS, {"mean": {metric_col: None for metric_col in METRIC_COLS}})
+        flf = agg_data(
+            flf, SEQ_COLS, {"mean": {metric_col: None for metric_col in METRIC_COLS}}
+        )
 
         if debug:
-            data_rows, data_seq = flf.select([pl.len(),pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
-            print(
-                f"Sequence data: "
-                f"{data_rows} rows, "
-                f"{data_seq} sequences."
+            data_rows, data_seq = (
+                flf.select([pl.len(), pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
             )
+            print(f"Sequence data: {data_rows} rows, {data_seq} sequences.")
 
     flf = to_long(flf)
-    
+
     group_by = list(dict.fromkeys([*facet_cols, *group_cols, X_COL]))
 
     if use_frame:
@@ -187,7 +186,7 @@ def process_data(
             "mean": {Y_COL: "mean"},
             "median": {Y_COL: "median"},
             "p10": {Y_COL: "p10"},
-            "p90": {Y_COL: "p90"}
+            "p90": {Y_COL: "p90"},
         }
     else:
         aggs = {"mean": {Y_COL: None}}
@@ -215,8 +214,7 @@ def load_col_data(lf: pl.LazyFrame, cols: list) -> dict[str, list]:
 
     return {
         col: (
-            slf
-            .select(pl.col(col).unique(maintain_order=True))
+            slf.select(pl.col(col).unique(maintain_order=True))
             .collect()
             .get_column(col)
             .to_list()
@@ -273,7 +271,7 @@ def main() -> int:
     'trans_axis': ['diag', 'x', 'y', 'z']
     """
     filter_by = {
-        "dataset_name": 'Head1',
+        "dataset_name": "Head1",
         "level": 0,
         "method": ["lin", "quadB"],
         "lighting_enabled": True,
@@ -297,7 +295,15 @@ def main() -> int:
         "true_samples": 15,
         "virtual_samples": 0,
     }
-    plf = process_data(lf, filter_by, facet_cols, group_cols, baselines=None, debug=args.debug, use_frame=False)
+    plf = process_data(
+        lf,
+        filter_by,
+        facet_cols,
+        group_cols,
+        baselines=None,
+        debug=args.debug,
+        use_frame=False,
+    )
     print(plf.collect().to_dicts())
 
     return 0
