@@ -36,7 +36,7 @@ DATASET_ORDER = list(DATASET_LABELS.keys())
 
 VIRTUAL_METHOD_LABELS = {
     "none": "None",
-    "linvs": "linear",
+    "linvs": "Linear",
     "crvs": "Catmull-Rom Spline",
     "hermvs": "Hermite Spline",
     "monhermvs": "Monotone Hermite Spline",
@@ -110,7 +110,7 @@ COL_META = {
     ),
     "true_samples": ColMeta(
         label="Sampling Rate",
-        values={i: f"{i} Samples" for i in range(16)},
+        values={i: f"{i}x Samples" for i in range(16)},
     ),
     "virtual_sampling_method": ColMeta(
         label="Virtual Method",
@@ -118,8 +118,7 @@ COL_META = {
         order=VIRTUAL_METHOD_ORDER,
     ),
     "virtual_samples": ColMeta(
-        label="Virtual Samples",
-        values={i: f"{i} Samples" for i in range(20)}
+        label="Virtual Samples", values={i: f"{i} Samples" for i in range(20)}
     ),
     "trans_type": ColMeta(
         label="Transform Type",
