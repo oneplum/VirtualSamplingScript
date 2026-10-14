@@ -464,6 +464,7 @@ def all_fig(
                             fillcolor="rgba(100, 150, 255, 0.2)",
                             line={"color": "rgba(0,0,0,0)"},
                             name=trace_name,
+                            legendgroup=trace_name,
                             hoverinfo="skip",
                             showlegend=(facet_idx == 0),
                         ),
@@ -481,6 +482,7 @@ def all_fig(
                             y=data[t_col],
                             mode=t_mode,
                             name=trace_name,
+                            legendgroup=trace_name,
                             line=dict(color=color),
                             showlegend=(facet_idx == 0),
                             hovertemplate=(
