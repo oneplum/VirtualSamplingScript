@@ -38,6 +38,16 @@ GROUP_COLS = [
     "true_samples",
     "virtual_sampling_method",
     "virtual_samples",
+    "trans_type",
+    "trans_axis",
+    "dataset_name",
+    "level"
+]
+GROUP_DEFAULT = [
+    "method",
+    "true_samples",
+    "virtual_sampling_method",
+    "virtual_samples",
 ]
 BASELINES = {
     "method": "lin",
@@ -141,7 +151,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 
 def make_layout(
-    filter_data: dict[str, list], facet_cols: list[str], statistic_modes: list[int]
+    filter_data: dict[str, list], facet_cols: list[str], group_cols: list[str], statistic_modes: list[int]
 ) -> html.Div:
     return html.Div(
         [
@@ -223,6 +233,36 @@ def make_layout(
                                             for facet_col in facet_cols
                                         ],
                                         value=FACET_DEFAULT,
+                                        clearable=False,
+                                        debounce=True,
+                                        closeOnSelect=False,
+                                        multi=True,
+                                    ),
+                                ],
+                                style={
+                                    "minWidth": "0",
+                                    "flex": "1",
+                                    "margin": "auto 2px",
+                                },
+                            ),
+                            html.Div(
+                                [
+                                    html.Label(
+                                        "Group By: ",
+                                        style={"fontWeight": "bold"},
+                                    ),
+                                    dcc.Dropdown(
+                                        id="group-dropdown",
+                                        options=[
+                                            {
+                                                "label": COL_META[group_col].label
+                                                if group_col in COL_META
+                                                else group_col,
+                                                "value": group_col,
+                                            }
+                                            for group_col in group_cols
+                                        ],
+                                        value=GROUP_DEFAULT,
                                         clearable=False,
                                         debounce=True,
                                         closeOnSelect=False,
@@ -545,15 +585,16 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
             "value",
         ),
         Input("facet-dropdown", "value"),
+        Input("group-dropdown", "value"),
         Input("stats-dropdown", "value"),
     )
-    def update_main_chart(filter_vals, sel_facets, sel_stats):
+    def update_main_chart(filter_vals, sel_facets, sel_groups, sel_stats):
         filters = ctx.inputs_list[0]
 
-        df = get_data(lf, filters, sel_facets, GROUP_COLS, sel_stats, BASELINES, debug)
+        df = get_data(lf, filters, sel_facets, sel_groups, sel_stats, BASELINES, debug)
 
         facet_cols = sel_facets
-        group_cols = GROUP_COLS
+        group_cols = sel_groups
         if sel_stats == STATISTIC_DELTA:
             traces = [(TRACE_MODE_LOLLIPOP, DELTA_COL, None, None)]
         elif sel_stats == STATISTIC_PERCENTILE:
@@ -577,15 +618,16 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
             "value",
         ),
         State("facet-dropdown", "value"),
+        State("group-dropdown", "value"),
         State("stats-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def download_data(n_clicks, filter_vals, sel_facets, sel_stats):
+    def download_data(n_clicks, filter_vals, sel_facets, sel_groups, sel_stats):
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
 
         filters = ctx.states_list[0]
-        df = get_data(lf, filters, sel_facets, GROUP_COLS, sel_stats, BASELINES)
+        df = get_data(lf, filters, sel_facets, sel_groups, sel_stats, BASELINES)
         return {
             "content": df.write_csv(),
             "filename": "data.csv",
@@ -607,7 +649,7 @@ def main() -> int:
 
     app = dash.Dash(__name__, title="BLTI Analysis")
 
-    app.layout = make_layout(filter_values, FACET_COLS, STATISTIC_MODES)
+    app.layout = make_layout(filter_values, FACET_COLS, GROUP_COLS, STATISTIC_MODES)
 
     register_callback(app, lf, args.debug)
 
