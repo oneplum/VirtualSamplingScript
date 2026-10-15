@@ -154,6 +154,7 @@ def process_data(
     filters: dict[str, Any],
     facet_cols: list,
     group_cols: list,
+    x_col: str = X_COL,
     baselines: dict[str, Any] | None = None,
     use_frame: bool = False,
     debug: bool = False,
@@ -179,7 +180,7 @@ def process_data(
 
     flf = to_long(flf)
 
-    group_by = list(dict.fromkeys([*facet_cols, *group_cols, X_COL]))
+    group_by = list(dict.fromkeys([*facet_cols, *group_cols, x_col]))
 
     if use_frame:
         aggs = {
@@ -195,11 +196,11 @@ def process_data(
 
     if baselines and not use_frame:
         blf = filter_data(flf, baselines).select(
-            [*facet_cols, X_COL, pl.col(Y_COL).alias("baseline")]
+            [*facet_cols, x_col, pl.col(Y_COL).alias("baseline")]
         )
 
         flf = (
-            flf.join(blf, on=[*facet_cols, X_COL], how="inner", validate="m:1")
+            flf.join(blf, on=[*facet_cols, x_col], how="inner", validate="m:1")
             .with_columns((pl.col(Y_COL) - pl.col("baseline")).alias(DELTA_COL))
             .drop([Y_COL, "baseline"])
         )
@@ -271,40 +272,40 @@ def main() -> int:
     'trans_axis': ['diag', 'x', 'y', 'z']
     """
     filter_by = {
-        "dataset_name": "Head1",
-        "level": 0,
-        "method": ["lin", "quadB"],
-        "lighting_enabled": True,
-        "true_samples": 15,
+        # "dataset_name": "Head1",
+        # "level": 0,
+        # "method": ["lin", "quadB"],
+        # "lighting_enabled": True,
+        # "true_samples": 15,
         "virtual_sampling_method": "none",
         "virtual_samples": 0,
-        "trans_type": "rot",
-        "trans_axis": "y",
+        # "trans_type": "rot",
+        # "trans_axis": "y",
     }
 
-    facet_cols = ["dataset_name", "level"]
+    facet_cols = ["band_idx"]
     group_cols = [
         "method",
-        "true_samples",
-        "virtual_sampling_method",
-        "virtual_samples",
     ]
-    baselines = {
-        "method": "lin",
-        "virtual_sampling_method": "none",
-        "true_samples": 15,
-        "virtual_samples": 0,
-    }
+    x_col = "true_samples"
+    # baselines = {
+    #     "method": "lin",
+    #     "virtual_sampling_method": "none",
+    #     "true_samples": 15,
+    #     "virtual_samples": 0,
+    # }
     plf = process_data(
         lf,
         filter_by,
         facet_cols,
         group_cols,
+        x_col,
         baselines=None,
         debug=args.debug,
         use_frame=False,
     )
     print(plf.collect().to_dicts())
+    print(plf.collect_schema())
 
     return 0
 

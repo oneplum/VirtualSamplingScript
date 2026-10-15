@@ -20,18 +20,18 @@ from data import DELTA_COL, X_COL, Y_COL, load_col_data, load_data, process_data
 
 FILTER_COLS = [col.name for col in fields(FrameBasic)]
 FILTER_DEFAULT = {
-    "dataset_name": ["Head1"],
-    "level": [0],
-    "lighting_enabled": [True],
-    "true_samples": [15],
+    # "dataset_name": ["Head1"],
+    # "level": [0],
+    # "lighting_enabled": [True],
+    # "true_samples": [15],
     "virtual_sampling_method": ["none"],
     "virtual_samples": [0],
-    "trans_type": ["rot"],
-    "trans_axis": ["y"],
+    # "trans_type": ["rot"],
+    # "trans_axis": ["y"],
 }
 
 FACET_COLS = ["dataset_name", "level", "lighting_enabled", "trans_type", "trans_axis"]
-FACET_DEFAULT = ["dataset_name", "level"]
+FACET_DEFAULT = ["lighting_enabled"]
 
 GROUP_COLS = [
     "method",
@@ -41,14 +41,25 @@ GROUP_COLS = [
     "trans_type",
     "trans_axis",
     "dataset_name",
-    "level"
+    "level",
+    "band_idx"
 ]
 GROUP_DEFAULT = [
     "method",
-    "true_samples",
-    "virtual_sampling_method",
-    "virtual_samples",
+    # "true_samples",
+    # "virtual_sampling_method",
+    # "virtual_samples",
 ]
+
+X_COLS = [
+    "band_idx",
+    "true_samples",
+    "level",
+    "dataset_name",
+    "trans_type",
+    "trans_axis",
+]
+
 BASELINES = {
     "method": "lin",
     "virtual_sampling_method": "none",
@@ -151,7 +162,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 
 def make_layout(
-    filter_data: dict[str, list], facet_cols: list[str], group_cols: list[str], statistic_modes: list[int]
+    filter_data: dict[str, list], facet_cols: list[str], group_cols: list[str], x_cols: list[str], statistic_modes: list[int]
 ) -> html.Div:
     return html.Div(
         [
@@ -278,6 +289,33 @@ def make_layout(
                             html.Div(
                                 [
                                     html.Label(
+                                        "Axis X: ",
+                                        style={"fontWeight": "bold"},
+                                    ),
+                                    dcc.Dropdown(
+                                        id="xcol-dropdown",
+                                        options=[
+                                            {
+                                                "label": STATISTIC_LABEL.get(
+                                                    x_col, x_col
+                                                ),
+                                                "value": x_col,
+                                            }
+                                            for x_col in x_cols
+                                        ],
+                                        value=X_COL,
+                                        clearable=False,
+                                    ),
+                                ],
+                                style={
+                                    "minWidth": "0",
+                                    "flex": "1",
+                                    "margin": "auto 2px",
+                                },
+                            ),
+                            html.Div(
+                                [
+                                    html.Label(
                                         "Statistic: ",
                                         style={"fontWeight": "bold"},
                                     ),
@@ -352,6 +390,7 @@ def get_data(
     filters: list[Any],
     facets: Any,
     groups: Any,
+    x_col: Any = X_COL,
     stats: Any | None = None,
     baselines: Any | None = None,
     debug: bool = False,
@@ -379,6 +418,7 @@ def get_data(
         filter_by,
         facets,
         groups,
+        x_col,
         baselines,
         use_frame=use_frame,
         debug=debug,
@@ -480,7 +520,7 @@ def all_fig(
                             legendgroup=trace_name,
                             showlegend=(facet_idx == 0),
                             hovertemplate=(
-                                "Method: %{name}"
+                                f"{trace_name}"
                                 "<br>"
                                 "Band: %{x}"
                                 "<br>"
@@ -526,7 +566,9 @@ def all_fig(
                             line=dict(color=color),
                             showlegend=(facet_idx == 0),
                             hovertemplate=(
-                                "Band: %{x}<br>BLTI: %{y:.4f}<extra></extra>"
+                                f"{trace_name}"
+                                "<br>BLTI: %{y:.4f}"
+                                "<extra></extra>"
                             ),
                         ),
                         row=row,
@@ -545,7 +587,7 @@ def all_fig(
     fig.update_xaxes(
         tickmode="array",
         tickvals=data[x_col].to_list(),
-        ticktext=list(COL_META[X_COL].values.values()),
+        ticktext=list(COL_META[x_col].values.values()),
         ticks="outside",
         ticklen=5,
         showline=True,
@@ -586,12 +628,14 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         ),
         Input("facet-dropdown", "value"),
         Input("group-dropdown", "value"),
+        Input("xcol-dropdown", "value"),
         Input("stats-dropdown", "value"),
     )
-    def update_main_chart(filter_vals, sel_facets, sel_groups, sel_stats):
+    def update_main_chart(filter_vals, sel_facets, sel_groups, sel_col, sel_stats):
         filters = ctx.inputs_list[0]
 
-        df = get_data(lf, filters, sel_facets, sel_groups, sel_stats, BASELINES, debug)
+        df = get_data(lf, filters, sel_facets, sel_groups, sel_col, sel_stats, BASELINES, debug)
+        print(df)
 
         facet_cols = sel_facets
         group_cols = sel_groups
@@ -608,7 +652,7 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         else:
             traces = [(TRACE_MODE_LINE_MARKER, Y_COL, None, None)]
 
-        return all_fig(df, facet_cols, group_cols, traces)
+        return all_fig(df, facet_cols, group_cols, traces, sel_col)
 
     @app.callback(
         Output("download-csv", "data"),
@@ -619,15 +663,16 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         ),
         State("facet-dropdown", "value"),
         State("group-dropdown", "value"),
+        State("xcol-dropdown", "value"),
         State("stats-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def download_data(n_clicks, filter_vals, sel_facets, sel_groups, sel_stats):
+    def download_data(n_clicks, filter_vals, sel_facets, sel_groups, sel_col, sel_stats):
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
 
         filters = ctx.states_list[0]
-        df = get_data(lf, filters, sel_facets, sel_groups, sel_stats, BASELINES)
+        df = get_data(lf, filters, sel_facets, sel_groups, sel_col, sel_stats, BASELINES)
         return {
             "content": df.write_csv(),
             "filename": "data.csv",
@@ -649,7 +694,7 @@ def main() -> int:
 
     app = dash.Dash(__name__, title="BLTI Analysis")
 
-    app.layout = make_layout(filter_values, FACET_COLS, GROUP_COLS, STATISTIC_MODES)
+    app.layout = make_layout(filter_values, FACET_COLS, GROUP_COLS, X_COLS, STATISTIC_MODES)
 
     register_callback(app, lf, args.debug)
 
