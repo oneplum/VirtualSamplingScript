@@ -110,7 +110,7 @@ COL_META = {
     ),
     "true_samples": ColMeta(
         label="Sampling Rate",
-        values={i: f"{i}x Samples" for i in range(16)},
+        values={1: "1x Samples", 5: "5x Samples", 10: "10x Samples", 15: "15x Samples"},
     ),
     "virtual_sampling_method": ColMeta(
         label="Virtual Method",
