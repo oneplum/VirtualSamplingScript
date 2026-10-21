@@ -30,7 +30,14 @@ FILTER_DEFAULT = {
     # "trans_axis": ["y"],
 }
 
-FACET_COLS = ["dataset_name", "level", "lighting_enabled", "trans_type", "trans_axis"]
+FACET_COLS = [
+    "dataset_name",
+    "level",
+    "lighting_enabled",
+    "trans_type",
+    "trans_axis",
+    "method",
+]
 FACET_DEFAULT = ["lighting_enabled"]
 
 GROUP_COLS = [
@@ -42,13 +49,11 @@ GROUP_COLS = [
     "trans_axis",
     "dataset_name",
     "level",
-    "band_idx"
+    "band_idx",
 ]
 GROUP_DEFAULT = [
     "method",
-    # "true_samples",
-    # "virtual_sampling_method",
-    # "virtual_samples",
+    "virtual_sampling_method",
 ]
 
 X_COLS = [
@@ -63,8 +68,6 @@ X_COLS = [
 BASELINES = {
     "method": "lin",
     "virtual_sampling_method": "none",
-    "true_samples": 15,
-    "virtual_samples": 0,
 }
 
 
@@ -95,7 +98,7 @@ TRACE_MODE_LINE_MARKER = "lines+markers"
 TRACE_MODE_MARKER = "markers"
 TRACE_MODE_LOLLIPOP = "lollipop"
 
-SETTING_COLORS = px.colors.qualitative.Dark24
+SETTING_COLORS = px.colors.qualitative.Dark24 + px.colors.qualitative.Light24
 
 
 def _find_idx(lst: list[Any], val: Any):
@@ -106,6 +109,11 @@ def _label(col_names: list[str], col_values: list[Any] | tuple[Any, ...]):
     labels = []
 
     vmethod_idx = _find_idx(col_names, "virtual_sampling_method")
+
+    if len(col_names) == 1 and vmethod_idx == 0:
+        return COL_META["virtual_sampling_method"].get_val_label(
+            col_values[vmethod_idx]
+        )
 
     for col, val in zip(col_names, col_values):
         if col == "level" and val == 0:
@@ -162,7 +170,11 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 
 def make_layout(
-    filter_data: dict[str, list], facet_cols: list[str], group_cols: list[str], x_cols: list[str], statistic_modes: list[int]
+    filter_data: dict[str, list],
+    facet_cols: list[str],
+    group_cols: list[str],
+    x_cols: list[str],
+    statistic_modes: list[int],
 ) -> html.Div:
     return html.Div(
         [
@@ -244,7 +256,7 @@ def make_layout(
                                             for facet_col in facet_cols
                                         ],
                                         value=FACET_DEFAULT,
-                                        clearable=False,
+                                        clearable=True,
                                         debounce=True,
                                         closeOnSelect=False,
                                         multi=True,
@@ -394,6 +406,7 @@ def get_data(
     stats: Any | None = None,
     baselines: Any | None = None,
     debug: bool = False,
+    is_long: bool = True,
 ) -> pl.DataFrame:
     filter_by = {
         filter_ipt["id"]["column"]: filter_ipt["value"]
@@ -401,27 +414,20 @@ def get_data(
         if filter_ipt["value"]
     }
 
-    if stats == STATISTIC_PERCENTILE:
-        use_frame = True
-    else:
-        use_frame = False
+    use_frame = stats == STATISTIC_PERCENTILE
 
-    if stats == STATISTIC_DELTA:
-        for col, val in baselines.items():
-            if col in filter_by and val not in filter_by[col]:
-                filter_by[col].append(val)
-    else:
+    if stats != STATISTIC_DELTA:
         baselines = None
 
+    group_by = list(dict.fromkeys([*facets, *groups]))
     dlf = process_data(
         lf,
         filter_by,
-        facets,
-        groups,
-        x_col,
+        group_by,
         baselines,
         use_frame=use_frame,
         debug=debug,
+        is_long=is_long,
     )
     df = dlf.collect()
     return df
@@ -437,7 +443,11 @@ def all_fig(
     if df.is_empty():
         return go.Figure().update_layout(title="No data")
 
-    facets = df.partition_by(facet_cols, as_dict=True)
+    facets = (
+        df.partition_by(facet_cols, maintain_order=True, as_dict=True)
+        if facet_cols
+        else {(): df}
+    )
     n_facets = len(facets)
     ncols = min(2, n_facets)
     nrows = math.ceil(n_facets / ncols)
@@ -566,9 +576,7 @@ def all_fig(
                             line=dict(color=color),
                             showlegend=(facet_idx == 0),
                             hovertemplate=(
-                                f"{trace_name}"
-                                "<br>BLTI: %{y:.4f}"
-                                "<extra></extra>"
+                                f"{trace_name}<br>BLTI: %{{y:.4f}}<extra></extra>"
                             ),
                         ),
                         row=row,
@@ -585,9 +593,11 @@ def all_fig(
             )
 
     fig.update_xaxes(
+        matches="x",
         tickmode="array",
         tickvals=data[x_col].to_list(),
         ticktext=list(COL_META[x_col].values.values()),
+        showticklabels=True,
         ticks="outside",
         ticklen=5,
         showline=True,
@@ -609,11 +619,18 @@ def all_fig(
         else COL_META[Y_COL].label,
     )
 
+    legent_title = ""
+    if group_cols:
+        if len(group_cols) == 1 and group_cols[0] == "virtual_sampling_method":
+            legent_title = "Virtual Sampling Method"
+        else:
+            legent_title = "Sampling Method"
+
     fig.update_layout(
         height=400 * nrows,
-        hovermode="closest",
+        hovermode="x",
         template="plotly_white",
-        legend_title="Sampling Method" if group_cols else "",
+        legend_title=legent_title,
     )
 
     return fig
@@ -634,8 +651,9 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
     def update_main_chart(filter_vals, sel_facets, sel_groups, sel_col, sel_stats):
         filters = ctx.inputs_list[0]
 
-        df = get_data(lf, filters, sel_facets, sel_groups, sel_col, sel_stats, BASELINES, debug)
-        print(df)
+        df = get_data(
+            lf, filters, sel_facets, sel_groups, sel_col, sel_stats, BASELINES, debug
+        )
 
         facet_cols = sel_facets
         group_cols = sel_groups
@@ -667,12 +685,23 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         State("stats-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def download_data(n_clicks, filter_vals, sel_facets, sel_groups, sel_col, sel_stats):
+    def download_data(
+        n_clicks, filter_vals, sel_facets, sel_groups, sel_col, sel_stats
+    ):
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
 
         filters = ctx.states_list[0]
-        df = get_data(lf, filters, sel_facets, sel_groups, sel_col, sel_stats, BASELINES)
+        df = get_data(
+            lf,
+            filters,
+            sel_facets,
+            sel_groups,
+            sel_col,
+            sel_stats,
+            BASELINES,
+            is_long=False,
+        )
         return {
             "content": df.write_csv(),
             "filename": "data.csv",
@@ -694,7 +723,9 @@ def main() -> int:
 
     app = dash.Dash(__name__, title="BLTI Analysis")
 
-    app.layout = make_layout(filter_values, FACET_COLS, GROUP_COLS, X_COLS, STATISTIC_MODES)
+    app.layout = make_layout(
+        filter_values, FACET_COLS, GROUP_COLS, X_COLS, STATISTIC_MODES
+    )
 
     register_callback(app, lf, args.debug)
 
