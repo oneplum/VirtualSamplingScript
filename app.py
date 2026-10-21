@@ -49,7 +49,7 @@ GROUP_COLS = [
     "trans_axis",
     "dataset_name",
     "level",
-    "band_idx",
+    "lighting_enabled",
 ]
 GROUP_DEFAULT = [
     "method",
