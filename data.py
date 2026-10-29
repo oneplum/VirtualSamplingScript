@@ -27,6 +27,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
+import matplotlib.pyplot as plt
 import polars as pl
 
 from blti import BLTI_K
@@ -159,6 +160,7 @@ def process_data(
     filters: dict[str, Any],
     group_by: list[str],
     baselines: dict[str, Any] | None = None,
+    one_frame: bool = False,
     use_frame: bool = False,
     debug: bool = False,
     is_long: bool = True
@@ -170,6 +172,9 @@ def process_data(
             flf.select([pl.len(), pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
         )
         print(f"Filtered data: {data_rows} rows, {data_seq} sequences.")
+
+    if one_frame:
+        return flf.sort(pl.col("frame_idx"))
 
     if use_frame:
         flf = to_long(flf)
@@ -267,6 +272,33 @@ def build_argument_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def show_plot(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
+    select_cols = [x_col, y_col]
+    if group_col:
+        select_cols.append(group_col)
+    df = lf.select(select_cols).collect()
+
+    fig, ax = plt.subplots()
+
+    groups = (
+        df.partition_by(group_col, maintain_order=True, as_dict=True)
+        if group_col
+        else {(): df}
+    )
+
+    for group_val, group in groups.items():
+        if not group_col:
+            group_val = ""
+        ax.plot(
+            group[x_col].to_numpy(),
+            group[y_col].to_numpy(),
+            label=group_val
+        )
+    ax.grid(True, axis="y", alpha=0.25)
+    if group_col:
+        ax.legend()
+    plt.show()
+
 def main() -> int:
     print("Starting...")
 
@@ -294,19 +326,19 @@ def main() -> int:
     'trans_axis': ['diag', 'x', 'y', 'z']
     """
     filter_by = {
-        # "dataset_name": "Head1",
-        # "level": 0,
-        # "method": ["lin", "quadB"],
-        # "lighting_enabled": True,
-        # "true_samples": 15,
+        "dataset_name": "Tree2",
+        "level": 0,
+        "method": "lin",
+        "lighting_enabled": False,
+        "true_samples": 15,
         "virtual_sampling_method": "none",
         "virtual_samples": 0,
-        # "trans_type": "rot",
-        # "trans_axis": "y",
+        "trans_type": "rot",
+        "trans_axis": "y" #['diag', 'x', 'y'],
     }
 
     group_by = [
-        "true_samples",
+        # "",
         "method",
         "virtual_sampling_method"
     ]
@@ -318,12 +350,15 @@ def main() -> int:
         lf,
         filter_by,
         group_by,
-        baselines=baselines,
         debug=args.debug,
+        one_frame=True,
+        baselines=None,
         use_frame=False,
         is_long=False
     )
-    print(plf.collect().to_dicts())
+    show_plot(plf, "frame_idx", "blti_0")
+    # show_plot(plf, "method", "blti_0", "virtual_sampling_method")
+    # print(plf.collect().to_dicts())
 
     return 0
 
