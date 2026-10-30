@@ -27,6 +27,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import matplotlib.pyplot as plt
 import polars as pl
 
@@ -299,6 +300,58 @@ def show_plot(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
         ax.legend()
     plt.show()
 
+
+def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
+    select_cols = [x_col, y_col]
+    if group_col:
+        select_cols.append(group_col)
+    df = lf.select(select_cols).collect()
+
+    fig, ax = plt.subplots()
+
+    groups = (
+        df.partition_by(group_col, maintain_order=True, as_dict=True)
+        if group_col
+        else {(): df}
+    )
+
+    n_groups = len(groups)
+    offset = 0.6 / max(1, n_groups)
+
+    x_data = list(dict.fromkeys(df[x_col]))
+    x_map = {v: k for k, v in enumerate(x_data)}
+
+    for group_idx, (group_val, data) in enumerate(groups.items()):
+        if data.is_empty():
+            continue
+
+        if not group_col:
+            group_val = ""
+        else:
+            group_val = "-".join(group_val)
+
+        x = np.array([x_map[v] for v in data[x_col]], dtype=float) + (group_idx - (n_groups - 1) / 2) * offset
+
+        markerline, stemlines, baseline = ax.stem(
+            x,
+            data[y_col].to_numpy(),
+            label=group_val
+        )
+        colors = plt.cm.viridis(np.linspace(0, 1, n_groups))[group_idx]
+        stemlines.set_color(colors)
+        markerline.set_color(colors)
+        if group_col == "virtual_sampling_method" and group_val != "none":
+            stemlines.set_linestyle("--")
+
+    ax.set_xticks(list(x_map.values()))
+    ax.set_xticklabels(list(x_map.keys()), rotation=45, ha="right")
+
+    ax.grid(True, axis="y", alpha=0.25)
+    if group_col:
+        ax.legend()
+    plt.show()
+
+
 def main() -> int:
     print("Starting...")
 
@@ -328,13 +381,13 @@ def main() -> int:
     filter_by = {
         "dataset_name": "Tree2",
         "level": 0,
-        "method": "lin",
+        # "method": "lin",
         "lighting_enabled": False,
-        "true_samples": 15,
-        "virtual_sampling_method": "none",
-        "virtual_samples": 0,
-        "trans_type": "rot",
-        "trans_axis": "y" #['diag', 'x', 'y'],
+        # "true_samples": 15,
+        # "virtual_sampling_method": "none",
+        # "virtual_samples": 0,
+        # "trans_type": "rot",
+        "trans_axis": ['diag', 'x', 'y'],
     }
 
     group_by = [
@@ -351,13 +404,13 @@ def main() -> int:
         filter_by,
         group_by,
         debug=args.debug,
-        one_frame=True,
+        one_frame=False,
         baselines=None,
         use_frame=False,
         is_long=False
     )
-    show_plot(plf, "frame_idx", "blti_0")
-    # show_plot(plf, "method", "blti_0", "virtual_sampling_method")
+    # show_plot(plf, "frame_idx", "blti_0")
+    show_stem(plf, "method", "blti_0", "virtual_sampling_method")
     # print(plf.collect().to_dicts())
 
     return 0
