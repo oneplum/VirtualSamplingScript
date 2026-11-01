@@ -27,8 +27,8 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 import polars as pl
 
 from blti import BLTI_K
@@ -145,7 +145,12 @@ def agg_data(
     return glf
 
 
-def to_long(lf: pl.LazyFrame, idx_cols: list = SEQ_COLS, var_col: str = X_COL, val_col: str = Y_COL) -> pl.LazyFrame:
+def to_long(
+    lf: pl.LazyFrame,
+    idx_cols: list = SEQ_COLS,
+    var_col: str = X_COL,
+    val_col: str = Y_COL,
+) -> pl.LazyFrame:
     llf = lf.unpivot(
         on=METRIC_COLS, index=idx_cols, variable_name=var_col, value_name=val_col
     )
@@ -164,7 +169,7 @@ def process_data(
     one_frame: bool = False,
     use_frame: bool = False,
     debug: bool = False,
-    is_long: bool = True
+    is_long: bool = True,
 ) -> pl.LazyFrame:
     flf = filter_data(lf, filters)
 
@@ -187,7 +192,7 @@ def process_data(
         }
         flf = agg_data(flf, group_by + [X_COL], aggs)
         return flf
-    
+
     aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
     flf = agg_data(flf, SEQ_COLS, aggs)
     if debug:
@@ -202,15 +207,22 @@ def process_data(
     val_col = Y_COL
     if baselines:
         on_keys = [
-            c for c in flf.collect_schema().names()
+            c
+            for c in flf.collect_schema().names()
             if c not in baselines and c not in METRIC_COLS
         ]
 
         if on_keys:
-            select_cols = on_keys + [pl.col(metric_col).alias(f"{metric_col}_baseline") for metric_col in METRIC_COLS]
+            select_cols = on_keys + [
+                pl.col(metric_col).alias(f"{metric_col}_baseline")
+                for metric_col in METRIC_COLS
+            ]
         else:
-            select_cols = [pl.col(metric_col).alias(f"{metric_col}_baseline") for metric_col in METRIC_COLS]
-        
+            select_cols = [
+                pl.col(metric_col).alias(f"{metric_col}_baseline")
+                for metric_col in METRIC_COLS
+            ]
+
         blf = filter_data(flf, baselines).select(select_cols)
 
         if on_keys:
@@ -218,11 +230,14 @@ def process_data(
         else:
             flf = flf.join(blf, how="cross")
 
-        flf = (
-            flf
-            .with_columns([(pl.col(metric_col) - pl.col(f"{metric_col}_baseline")).alias(metric_col) for metric_col in METRIC_COLS ])
-            .drop([f"{metric_col}_baseline" for metric_col in METRIC_COLS])
-        )
+        flf = flf.with_columns(
+            [
+                (pl.col(metric_col) - pl.col(f"{metric_col}_baseline")).alias(
+                    metric_col
+                )
+                for metric_col in METRIC_COLS
+            ]
+        ).drop([f"{metric_col}_baseline" for metric_col in METRIC_COLS])
 
         val_col = DELTA_COL
 
@@ -290,11 +305,7 @@ def show_plot(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
     for group_val, group in groups.items():
         if not group_col:
             group_val = ""
-        ax.plot(
-            group[x_col].to_numpy(),
-            group[y_col].to_numpy(),
-            label=group_val
-        )
+        ax.plot(group[x_col].to_numpy(), group[y_col].to_numpy(), label=group_val)
     ax.grid(True, axis="y", alpha=0.25)
     if group_col:
         ax.legend()
@@ -330,12 +341,13 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
         else:
             group_val = "-".join(group_val)
 
-        x = np.array([x_map[v] for v in data[x_col]], dtype=float) + (group_idx - (n_groups - 1) / 2) * offset
+        x = (
+            np.array([x_map[v] for v in data[x_col]], dtype=float)
+            + (group_idx - (n_groups - 1) / 2) * offset
+        )
 
         markerline, stemlines, baseline = ax.stem(
-            x,
-            data[y_col].to_numpy(),
-            label=group_val
+            x, data[y_col].to_numpy(), label=group_val
         )
         colors = plt.cm.viridis(np.linspace(0, 1, n_groups))[group_idx]
         stemlines.set_color(colors)
@@ -350,6 +362,46 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
     if group_col:
         ax.legend()
     plt.show()
+
+
+def pink_data(lf: pl.LazyFrame) -> int:
+    # lf.filter(
+    #     (pl.col("blti_0") == pl.col("blti_0").max()) |
+    #     (pl.col("blti_1") == pl.col("blti_1").max()) |
+    #     (pl.col("blti_2") == pl.col("blti_2").max()) |
+    #     (pl.col("blti_3") == pl.col("blti_3").max()) |
+    #     (pl.col("blti_4") == pl.col("blti_4").max()) |
+    #     (pl.col("blti_5") == pl.col("blti_5").max())
+    # ).collect().write_csv("max_all.csv")
+
+    # aggs = []
+    # for idx, metric_col in enumerate(METRIC_COLS):
+    #     aggs.append(pl.col(metric_col).max().alias(f"max_{idx}"))
+    #     # aggs.append(pl.col(metric_col).min().alias(f"min_{idx}"))
+    # lf.group_by([pl.col("dataset_name"), pl.col("level")]).agg(aggs).sort([pl.col("dataset_name"), pl.col("level")]).collect().write_csv("max_ds.csv")
+    # lf.group_by([pl.col("trans_type"), pl.col("trans_axis")]).agg(aggs).sort([pl.col("trans_type"), pl.col("trans_axis")]).collect().write_csv("max_trans.csv")
+
+    lf.filter(
+        (pl.col("blti_0") > 8.0)
+        | (pl.col("blti_1") > 8.0)
+        | (pl.col("blti_2") > 8.0)
+        | (pl.col("blti_3") > 8.0)
+        | (pl.col("blti_4") > 8.0)
+        | (pl.col("blti_5") > 8.0)
+    ).sort(SEQ_COLS).with_columns(
+        pl.concat_str(SEQ_COLS, separator="-").alias("seq")
+    ).drop(SEQ_COLS).collect().write_csv("max_8.csv")
+
+    # lf = lf.with_columns(pl.concat_str(SEQ_COLS, separator="-").alias("seq")).drop(SEQ_COLS)
+    # aggs = {"mean": {"blti_1": None}}
+    # flf = agg_data(lf, ["seq"], aggs)
+    # flf.sort("blti_1").head(10).collect().write_csv("best_seq_10.csv")
+    # flf.sort("blti_1", descending=True).head(10).collect().write_csv("worst_seq_10.csv")
+
+    # lf.sort("blti_1").select(["seq", "frame_idx", "blti_1"]).head(10).collect().write_csv("best_frame_10.csv")
+    # lf.sort("blti_1", descending=True).select(["seq", "frame_idx", "blti_1"]).head(10).collect().write_csv("worst_frame_10.csv")
+
+    return 0
 
 
 def main() -> int:
@@ -367,6 +419,8 @@ def main() -> int:
         data_rows = lf.select(pl.len()).collect().item()
         print(f"Found {data_rows} rows data.")
 
+    return pink_data(lf)
+
     """
     'dataset_name': ['Aneurism1', 'Aneurism2', 'Head1', 'Head2', 'ML1', 'ML2', 'Sphere', 'Tree1', 'Tree2'], 
     'level': [0, 1], 
@@ -378,22 +432,23 @@ def main() -> int:
     'trans_type': ['rot', 'trans'], 
     'trans_axis': ['diag', 'x', 'y', 'z']
     """
+    # Tree1-1-quadB-false-1-linvs-18-rot-x
     filter_by = {
-        "dataset_name": "Tree2",
-        "level": 0,
-        # "method": "lin",
+        "dataset_name": "Tree1",
+        "level": 1,
+        "method": "quadB",
         "lighting_enabled": False,
         # "true_samples": 15,
-        # "virtual_sampling_method": "none",
-        # "virtual_samples": 0,
-        # "trans_type": "rot",
-        "trans_axis": ['diag', 'x', 'y'],
+        "virtual_sampling_method": "linvs",
+        "virtual_samples": 18,
+        "trans_type": "rot",
+        "trans_axis": "x",
     }
 
     group_by = [
         # "",
         "method",
-        "virtual_sampling_method"
+        "virtual_sampling_method",
     ]
     baselines = {
         "method": "lin",
@@ -404,13 +459,13 @@ def main() -> int:
         filter_by,
         group_by,
         debug=args.debug,
-        one_frame=False,
+        one_frame=True,
         baselines=None,
         use_frame=False,
-        is_long=False
+        is_long=False,
     )
-    # show_plot(plf, "frame_idx", "blti_0")
-    show_stem(plf, "method", "blti_0", "virtual_sampling_method")
+    show_plot(plf, "frame_idx", "blti_0")
+    # show_stem(plf, "method", "blti_0", "virtual_sampling_method")
     # print(plf.collect().to_dicts())
 
     return 0

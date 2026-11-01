@@ -12,7 +12,7 @@ from PIL import Image
 OutputType = Literal["csv", "parquet"]
 
 METHOD_LABELS = {
-    "lin": "Linear",
+    "lin": "Trilinear",
     "quadB": "Quadratic B-Spline",
     "quadBf": "Quadratic B-Spline Prefiltered",
     "cubicB": "Cubic B-Spline",
@@ -26,8 +26,8 @@ DATASET_LABELS = {
     "Head2": "Visible Human Head, Bones Transfer Function",
     "Tree1": "Christmas Tree, close-up",
     "Tree2": "Christmas Tree, wide shot",
-    "Aneurism1": "Aneurism, Pulse Transfer-Function",
-    "Aneurism2": "Aneurism, Smoothstep Transfer-Function",
+    "Aneurism1": "Aneurysm, Pulse Transfer-Function",
+    "Aneurism2": "Aneurysm, Smoothstep Transfer-Function",
     "Sphere": "Spherical Distance Function, multi Pulse Transfer Function",
     "ML1": "Marschner-Lobb, Pulse Transfer-Function",
     "ML2": "Marschner-Lobb, Smoothstep Transfer-Function",
