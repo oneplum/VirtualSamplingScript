@@ -365,7 +365,7 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
 
 
 def pink_data(lf: pl.LazyFrame) -> int:
-    # lf.select([pl.col(metric_col).max() for metric_col in METRIC_COLS]).collect().write_csv("max_all1.csv")
+    # lf.select([pl.col(metric_col).max() for metric_col in METRIC_COLS]).collect().write_csv("max_all.csv")
     # lf.filter(
     #     (pl.col("blti_0") == pl.col("blti_0").max()) |
     #     (pl.col("blti_1") == pl.col("blti_1").max()) |
@@ -376,13 +376,19 @@ def pink_data(lf: pl.LazyFrame) -> int:
     # ).collect().write_csv("max_all.csv")
 
     max_aggs = [pl.col(metric_col).max().alias(f"max_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
-    cols = [pl.col("dataset_name"), pl.col("level"), pl.col("trans_type"), pl.col("trans_axis"), pl.col("lighting_enabled")]
-    lf.group_by(cols).agg(max_aggs).sort(cols).collect().write_csv("max_var.csv")
-
     min_aggs = [pl.col(metric_col).min().alias(f"min_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
-    method_cols = [pl.col("method"), pl.col("virtual_sampling_method")]
-    lf.group_by(method_cols).agg(max_aggs).sort(method_cols).collect().write_csv("max_method.csv")
-    lf.group_by(method_cols).agg(min_aggs).sort(method_cols).collect().write_csv("min_method.csv")
+    
+    cols = [pl.col("dataset_name"), pl.col("level"), pl.col("trans_type"), pl.col("trans_axis"), pl.col("lighting_enabled")]
+    # lf.group_by(cols).agg(max_aggs).collect().write_csv("max_var.csv")
+    lf.group_by(cols).agg(min_aggs).collect().write_csv("min_var.csv")
+
+    # method_cols = [pl.col("method"), pl.col("virtual_sampling_method")]
+    # lf.group_by(method_cols).agg(max_aggs).collect().write_csv("max_method.csv")
+    # lf.group_by(method_cols).agg(min_aggs).collect().write_csv("min_method.csv")
+
+    trans_cols = [pl.col("trans_type"), pl.col("trans_axis"), pl.col("lighting_enabled")]
+    lf.group_by(trans_cols).agg(max_aggs).collect().write_csv("max_trans.csv")
+    lf.group_by(trans_cols).agg(min_aggs).collect().write_csv("min_trans.csv")
 
     # score = 4
     # lf.filter(
