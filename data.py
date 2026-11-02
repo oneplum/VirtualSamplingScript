@@ -365,6 +365,7 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
 
 
 def pink_data(lf: pl.LazyFrame) -> int:
+    # lf.select([pl.col(metric_col).max() for metric_col in METRIC_COLS]).collect().write_csv("max_all1.csv")
     # lf.filter(
     #     (pl.col("blti_0") == pl.col("blti_0").max()) |
     #     (pl.col("blti_1") == pl.col("blti_1").max()) |
@@ -374,23 +375,26 @@ def pink_data(lf: pl.LazyFrame) -> int:
     #     (pl.col("blti_5") == pl.col("blti_5").max())
     # ).collect().write_csv("max_all.csv")
 
-    # aggs = []
-    # for idx, metric_col in enumerate(METRIC_COLS):
-    #     aggs.append(pl.col(metric_col).max().alias(f"max_{idx}"))
-    #     # aggs.append(pl.col(metric_col).min().alias(f"min_{idx}"))
-    # lf.group_by([pl.col("dataset_name"), pl.col("level")]).agg(aggs).sort([pl.col("dataset_name"), pl.col("level")]).collect().write_csv("max_ds.csv")
-    # lf.group_by([pl.col("trans_type"), pl.col("trans_axis")]).agg(aggs).sort([pl.col("trans_type"), pl.col("trans_axis")]).collect().write_csv("max_trans.csv")
+    max_aggs = [pl.col(metric_col).max().alias(f"max_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
+    cols = [pl.col("dataset_name"), pl.col("level"), pl.col("trans_type"), pl.col("trans_axis"), pl.col("lighting_enabled")]
+    lf.group_by(cols).agg(max_aggs).sort(cols).collect().write_csv("max_var.csv")
 
-    lf.filter(
-        (pl.col("blti_0") > 8.0)
-        | (pl.col("blti_1") > 8.0)
-        | (pl.col("blti_2") > 8.0)
-        | (pl.col("blti_3") > 8.0)
-        | (pl.col("blti_4") > 8.0)
-        | (pl.col("blti_5") > 8.0)
-    ).sort(SEQ_COLS).with_columns(
-        pl.concat_str(SEQ_COLS, separator="-").alias("seq")
-    ).drop(SEQ_COLS).collect().write_csv("max_8.csv")
+    min_aggs = [pl.col(metric_col).min().alias(f"min_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
+    method_cols = [pl.col("method"), pl.col("virtual_sampling_method")]
+    lf.group_by(method_cols).agg(max_aggs).sort(method_cols).collect().write_csv("max_method.csv")
+    lf.group_by(method_cols).agg(min_aggs).sort(method_cols).collect().write_csv("min_method.csv")
+
+    # score = 4
+    # lf.filter(
+    #     (pl.col("blti_0") > score)
+    #     | (pl.col("blti_1") > score)
+    #     | (pl.col("blti_2") > score)
+    #     | (pl.col("blti_3") > score)
+    #     | (pl.col("blti_4") > score)
+    #     | (pl.col("blti_5") > score)
+    # ).sort(SEQ_COLS).with_columns(
+    #     pl.concat_str(SEQ_COLS, separator="-").alias("seq")
+    # ).drop(SEQ_COLS).collect().write_csv(f"max_{score}.csv")
 
     # lf = lf.with_columns(pl.concat_str(SEQ_COLS, separator="-").alias("seq")).drop(SEQ_COLS)
     # aggs = {"mean": {"blti_1": None}}
@@ -400,6 +404,22 @@ def pink_data(lf: pl.LazyFrame) -> int:
 
     # lf.sort("blti_1").select(["seq", "frame_idx", "blti_1"]).head(10).collect().write_csv("best_frame_10.csv")
     # lf.sort("blti_1", descending=True).select(["seq", "frame_idx", "blti_1"]).head(10).collect().write_csv("worst_frame_10.csv")
+
+    return 0
+
+
+def split_parquet_file(path: Path) -> int:
+    df = pl.read_parquet(path / "part-00000.parquet")
+    groups = df.partition_by(["dataset_name", "level", "lighting_enabled"], as_dict=True)
+
+    for (ds, level, lit), group in groups.items():
+        group.write_parquet(f"{ds}-{str(level)}-{"l" if lit else "n"}.parquet")
+
+    return 0
+
+def merge_parquet_file(path: Path) -> int:
+    lf = pl.scan_parquet(path / "Tree1-*.parquet")
+    lf.collect().write_parquet("part-00007.parquet")
 
     return 0
 
