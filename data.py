@@ -386,11 +386,13 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
 
 
 def check_data(lf: pl.LazyFrame, path: Path) -> int:
-    output_dir = Path.cwd() / "data" / "csv" / path.name
+    output_dir = Path.cwd() / "data" / "blti" / "csv" / path.name
     output_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
+    for _p in output_dir.glob("*.csv"):
+        _p.unlink()
 
     lf.filter(pl.any_horizontal([pl.col(metric_col) == pl.col(metric_col).max() for metric_col in METRIC_COLS ])).collect().write_csv(output_dir / "max_all.csv")
     lf.filter(pl.any_horizontal([pl.col(metric_col) == pl.col(metric_col).min() for metric_col in METRIC_COLS ])).collect().write_csv(output_dir / "min_all.csv")
