@@ -280,6 +280,27 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "-s",
+        "--split",
+        action="store_true",
+        help="Split data by dataset level and lighting",
+    )
+
+    parser.add_argument(
+        "-c",
+        "--check",
+        action="store_true",
+        help="Checkout maximun, minimum values",
+    )
+
+    parser.add_argument(
+        "-e",
+        "--equal",
+        action="store_true",
+        help="check out if two csv files equal",
+    )
+
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable Dash debug mode.",
@@ -364,31 +385,34 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
     plt.show()
 
 
-def pink_data(lf: pl.LazyFrame) -> int:
-    # lf.select([pl.col(metric_col).max() for metric_col in METRIC_COLS]).collect().write_csv("max_all.csv")
-    # lf.filter(
-    #     (pl.col("blti_0") == pl.col("blti_0").max()) |
-    #     (pl.col("blti_1") == pl.col("blti_1").max()) |
-    #     (pl.col("blti_2") == pl.col("blti_2").max()) |
-    #     (pl.col("blti_3") == pl.col("blti_3").max()) |
-    #     (pl.col("blti_4") == pl.col("blti_4").max()) |
-    #     (pl.col("blti_5") == pl.col("blti_5").max())
-    # ).collect().write_csv("max_all.csv")
+def check_data(lf: pl.LazyFrame, path: Path) -> int:
+    output_dir = Path.cwd() / "data" / "csv" / path.name
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    lf.filter(pl.any_horizontal([pl.col(metric_col) == pl.col(metric_col).max() for metric_col in METRIC_COLS ])).collect().write_csv(output_dir / "max_all.csv")
+    lf.filter(pl.any_horizontal([pl.col(metric_col) == pl.col(metric_col).min() for metric_col in METRIC_COLS ])).collect().write_csv(output_dir / "min_all.csv")
 
     max_aggs = [pl.col(metric_col).max().alias(f"max_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
     min_aggs = [pl.col(metric_col).min().alias(f"min_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
     
     cols = [pl.col("dataset_name"), pl.col("level"), pl.col("trans_type"), pl.col("trans_axis"), pl.col("lighting_enabled")]
-    # lf.group_by(cols).agg(max_aggs).collect().write_csv("max_var.csv")
-    lf.group_by(cols).agg(min_aggs).collect().write_csv("min_var.csv")
+    lf.group_by(cols).agg(max_aggs).collect().write_csv(output_dir / "max_var.csv")
+    lf.group_by(cols).agg(min_aggs).collect().write_csv(output_dir / "min_var.csv")
 
-    # method_cols = [pl.col("method"), pl.col("virtual_sampling_method")]
-    # lf.group_by(method_cols).agg(max_aggs).collect().write_csv("max_method.csv")
-    # lf.group_by(method_cols).agg(min_aggs).collect().write_csv("min_method.csv")
+    ds_cols = [pl.col("dataset_name"), pl.col("level"), pl.col("lighting_enabled")]
+    lf.group_by(ds_cols).agg(max_aggs).collect().write_csv(output_dir / "max_ds.csv")
+    lf.group_by(ds_cols).agg(min_aggs).collect().write_csv(output_dir / "min_ds.csv")
 
     trans_cols = [pl.col("trans_type"), pl.col("trans_axis"), pl.col("lighting_enabled")]
-    lf.group_by(trans_cols).agg(max_aggs).collect().write_csv("max_trans.csv")
-    lf.group_by(trans_cols).agg(min_aggs).collect().write_csv("min_trans.csv")
+    lf.group_by(trans_cols).agg(max_aggs).collect().write_csv(output_dir / "max_trans.csv")
+    lf.group_by(trans_cols).agg(min_aggs).collect().write_csv(output_dir / "min_trans.csv")
+
+    method_cols = [pl.col("method"), pl.col("virtual_sampling_method"), pl.col("lighting_enabled")]
+    lf.group_by(method_cols).agg(max_aggs).collect().write_csv(output_dir / "max_method.csv")
+    lf.group_by(method_cols).agg(min_aggs).collect().write_csv(output_dir / "min_method.csv")
 
     # score = 4
     # lf.filter(
@@ -414,14 +438,37 @@ def pink_data(lf: pl.LazyFrame) -> int:
     return 0
 
 
+def diff_data(path: Path) -> int:
+    for p in path.glob("*.csv"):
+        df1 = pl.read_csv(p)
+
+        p2 = p.parent.parent / f"{p.parent.name}a" / p.name
+        df2 = pl.read_csv(p2)
+
+        if not df1.equals(df2):
+            diff1 = df1.join(df2, on=df1.columns, how="anti")
+            print(p.name)
+            print(diff1)
+
+    print("done")
+
+    return 0
+
+
 def split_parquet_file(path: Path) -> int:
-    df = pl.read_parquet(path / "part-00000.parquet")
+    paths = [path / "part-00000.parquet"]
+    lf = pl.scan_parquet(paths)
+    print(load_col_data(lf, ["dataset_name", "level", "lighting_enabled"]))
+
+    df = lf.collect()
     groups = df.partition_by(["dataset_name", "level", "lighting_enabled"], as_dict=True)
 
     for (ds, level, lit), group in groups.items():
-        group.write_parquet(f"{ds}-{str(level)}-{"l" if lit else "n"}.parquet")
+        print(len(group))
+        group.write_parquet(path.parent / "r1024" / f"{ds}-{str(level)}-{"l" if lit else "n"}.parquet")
 
     return 0
+
 
 def merge_parquet_file(path: Path) -> int:
     lf = pl.scan_parquet(path / "Tree1-*.parquet")
@@ -435,6 +482,12 @@ def main() -> int:
 
     args = build_argument_parser().parse_args()
 
+    if args.split:
+        return split_parquet_file(args.data_dir)
+
+    if args.equal:
+        return diff_data(args.data_dir)
+
     lf = load_data(args.data_dir)
 
     if lf is None:
@@ -445,7 +498,8 @@ def main() -> int:
         data_rows = lf.select(pl.len()).collect().item()
         print(f"Found {data_rows} rows data.")
 
-    return pink_data(lf)
+    if args.check:
+        return check_data(lf, args.data_dir)
 
     """
     'dataset_name': ['Aneurism1', 'Aneurism2', 'Head1', 'Head2', 'ML1', 'ML2', 'Sphere', 'Tree1', 'Tree2'], 
