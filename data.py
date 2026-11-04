@@ -30,6 +30,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
+import xlsxwriter
 
 from blti import BLTI_K
 from common import DATASET_ORDER, METHOD_ORDER, VIRTUAL_METHOD_ORDER, FrameBasic
@@ -486,6 +487,36 @@ def merge_parquet_file(path: Path) -> int:
     return 0
 
 
+def statistics_data(lf: pl.LazyFrame, path: Path) -> int:
+    output_dir = Path.cwd() / "data" / "blti" / "xlsx" / path.name
+    output_dir.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    for _p in output_dir.glob("*.xlsx"):
+        _p.unlink()
+    
+    output = output_dir / "seq.xlsx"
+
+    aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
+    slf = agg_data(lf, SEQ_COLS, aggs)
+
+    with xlsxwriter.Workbook(output) as workbook:
+        cols = ["dataset_name", "level", "trans_type", "trans_axis", "lighting_enabled"]
+        agg_data(slf, cols, aggs).collect().write_excel(workbook=workbook, worksheet="var")
+
+        ds_cols = ["dataset_name", "level", "lighting_enabled"]
+        agg_data(slf, ds_cols, aggs).collect().write_excel(workbook=workbook, worksheet="ds")
+
+        trans_cols = ["trans_type", "trans_axis", "lighting_enabled"]
+        agg_data(slf, trans_cols, aggs).collect().write_excel(workbook=workbook, worksheet="trans")
+
+        method_cols = ["method", "virtual_sampling_method", "lighting_enabled"]
+        agg_data(slf, method_cols, aggs).collect().write_excel(workbook=workbook, worksheet="method")
+
+    return 0
+
+
 def main() -> int:
     print("Starting...")
 
@@ -508,6 +539,9 @@ def main() -> int:
         print(f"Found {data_rows} rows data.")
 
     if args.check:
+        if args.frame:
+            return statistics_data(lf, args.data_dir)
+    
         return check_data(lf, args.data_dir)
 
     """
