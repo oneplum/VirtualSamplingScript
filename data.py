@@ -301,6 +301,13 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "-f",
+        "--frame",
+        action="store_true",
+        help="show frame plot",
+    )
+
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable Dash debug mode.",
@@ -326,7 +333,7 @@ def show_plot(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
     for group_val, group in groups.items():
         if not group_col:
             group_val = ""
-        ax.plot(group[x_col].to_numpy(), group[y_col].to_numpy(), label=group_val)
+        ax.plot(group[x_col].to_numpy(), group[y_col].to_numpy(), marker="o", label=group_val)
     ax.grid(True, axis="y", alpha=0.25)
     if group_col:
         ax.legend()
@@ -514,17 +521,17 @@ def main() -> int:
     'trans_type': ['rot', 'trans'], 
     'trans_axis': ['diag', 'x', 'y', 'z']
     """
-    # Tree1-1-quadB-false-1-linvs-18-rot-x
     filter_by = {
         "dataset_name": "Tree1",
-        "level": 1,
-        "method": "quadB",
+        "level": 0,
         "lighting_enabled": False,
-        # "true_samples": 15,
-        "virtual_sampling_method": "linvs",
-        "virtual_samples": 18,
-        "trans_type": "rot",
-        "trans_axis": "x",
+        "method": "lin",
+        # "true_samples": 10,
+        "virtual_sampling_method": "none",
+        "virtual_samples": 0,
+        "trans_type": "trans",
+        "trans_axis": "y",
+        "frame_idx": 8
     }
 
     group_by = [
@@ -541,14 +548,21 @@ def main() -> int:
         filter_by,
         group_by,
         debug=args.debug,
-        one_frame=True,
+        one_frame=args.frame,
         baselines=None,
         use_frame=False,
         is_long=False,
     )
-    show_plot(plf, "frame_idx", "blti_0")
-    # show_stem(plf, "method", "blti_0", "virtual_sampling_method")
-    # print(plf.collect().to_dicts())
+    # step 1
+    # plf.sort(pl.col("blti_0"), descending=True).collect().write_csv("check1.csv")
+    # step 2: ML2,1,cr,true,1,crvs,1,rot,x
+    # if args.frame:
+    #     show_plot(plf, "frame_idx", "blti_0")
+    # else:
+    #     show_stem(plf, "method", "blti_0", "virtual_sampling_method")
+    #     print(plf.collect().to_dicts())
+    #step 3: frame best
+    filter_data(lf, filter_by).sort(pl.col("blti_0")).collect().write_csv("check1.csv")
 
     return 0
 
