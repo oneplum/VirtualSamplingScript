@@ -394,7 +394,7 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
 
 
 def check_data(lf: pl.LazyFrame, path: Path) -> int:
-    output_dir = Path.cwd() / "data" / "blti" / "csv" / path.name
+    output_dir = Path.cwd() / "data" / "blti" / "chk" / path.name
     output_dir.mkdir(
         parents=True,
         exist_ok=True,
@@ -402,48 +402,51 @@ def check_data(lf: pl.LazyFrame, path: Path) -> int:
     for _p in output_dir.glob("*.csv"):
         _p.unlink()
 
-    lf.filter(pl.any_horizontal([pl.col(metric_col) == pl.col(metric_col).max() for metric_col in METRIC_COLS ])).collect().write_csv(output_dir / "max_all.csv")
-    lf.filter(pl.any_horizontal([pl.col(metric_col) == pl.col(metric_col).min() for metric_col in METRIC_COLS ])).collect().write_csv(output_dir / "min_all.csv")
-
-    max_aggs = [pl.col(metric_col).max().alias(f"max_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
-    min_aggs = [pl.col(metric_col).min().alias(f"min_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
+    # peaks = []
     
-    cols = [pl.col("dataset_name"), pl.col("level"), pl.col("trans_type"), pl.col("trans_axis"), pl.col("lighting_enabled")]
-    lf.group_by(cols).agg(max_aggs).collect().write_csv(output_dir / "max_var.csv")
-    lf.group_by(cols).agg(min_aggs).collect().write_csv(output_dir / "min_var.csv")
+    # for metric_col in METRIC_COLS:
+    #     peaks.append(pl.col(metric_col).max().alias(f"max_{metric_col}"))
+    #     # peaks.append(pl.col(metric_col).min().alias(f"min_{metric_col}"))
+    #     # peaks.append(pl.col(metric_col).quantile(0.10).alias(f"p10_{metric_col}"))
+    #     # peaks.append(pl.col(metric_col).quantile(0.99).alias(f"p99_{metric_col}"))
+       
 
-    ds_cols = [pl.col("dataset_name"), pl.col("level"), pl.col("lighting_enabled")]
-    lf.group_by(ds_cols).agg(max_aggs).collect().write_csv(output_dir / "max_ds.csv")
-    lf.group_by(ds_cols).agg(min_aggs).collect().write_csv(output_dir / "min_ds.csv")
+    # lf.select(peaks).collect().write_csv(output_dir / "all.csv")
 
-    trans_cols = [pl.col("trans_type"), pl.col("trans_axis"), pl.col("lighting_enabled")]
-    lf.group_by(trans_cols).agg(max_aggs).collect().write_csv(output_dir / "max_trans.csv")
-    lf.group_by(trans_cols).agg(min_aggs).collect().write_csv(output_dir / "min_trans.csv")
+    cols = [pl.col("dataset_name"), pl.col("level"), pl.col("lighting_enabled"), pl.col("trans_type"), pl.col("trans_axis")]
+    for metric_col in METRIC_COLS:
+        (
+            lf
+            .filter(pl.col(metric_col) > 3)
+            .sort(metric_col, descending=True)
+            .with_columns(
+                pl.concat_str(
+                    [pl.col(c).cast(pl.String) for c in SEQ_COLS],
+                    separator="-"
+                ).alias("seq")
+            )
+            .group_by(
+                ["dataset_name", "level", "trans_type", "trans_axis", "lighting_enabled"],
+                maintain_order=True
+            )
+            .agg(
+                pl.col("seq").first(),
+                pl.col("frame_idx").first(),
+                pl.col(metric_col).first()
+            )
+            .select(["seq", "frame_idx", metric_col])
+        ).collect().write_csv(output_dir / f"{metric_col}_max_3.csv")
 
-    method_cols = [pl.col("method"), pl.col("virtual_sampling_method"), pl.col("lighting_enabled")]
-    lf.group_by(method_cols).agg(max_aggs).collect().write_csv(output_dir / "max_method.csv")
-    lf.group_by(method_cols).agg(min_aggs).collect().write_csv(output_dir / "min_method.csv")
+        #     group.write_parquet(path.parent / "r1024" / f"{ds}-{str(level)}-{"l" if lit else "n"}.parquet")
+        # df.write_csv(output_dir / "min_all.csv")
+    # lf.filter(pl.any_horizontal([pl.col(metric_col) == pl.col(metric_col).min() for metric_col in METRIC_COLS ])).collect().write_csv(output_dir / "min_all.csv")
 
-    # score = 4
-    # lf.filter(
-    #     (pl.col("blti_0") > score)
-    #     | (pl.col("blti_1") > score)
-    #     | (pl.col("blti_2") > score)
-    #     | (pl.col("blti_3") > score)
-    #     | (pl.col("blti_4") > score)
-    #     | (pl.col("blti_5") > score)
-    # ).sort(SEQ_COLS).with_columns(
-    #     pl.concat_str(SEQ_COLS, separator="-").alias("seq")
-    # ).drop(SEQ_COLS).collect().write_csv(f"max_{score}.csv")
-
-    # lf = lf.with_columns(pl.concat_str(SEQ_COLS, separator="-").alias("seq")).drop(SEQ_COLS)
-    # aggs = {"mean": {"blti_1": None}}
-    # flf = agg_data(lf, ["seq"], aggs)
-    # flf.sort("blti_1").head(10).collect().write_csv("best_seq_10.csv")
-    # flf.sort("blti_1", descending=True).head(10).collect().write_csv("worst_seq_10.csv")
-
-    # lf.sort("blti_1").select(["seq", "frame_idx", "blti_1"]).head(10).collect().write_csv("best_frame_10.csv")
-    # lf.sort("blti_1", descending=True).select(["seq", "frame_idx", "blti_1"]).head(10).collect().write_csv("worst_frame_10.csv")
+    # max_aggs = [pl.col(metric_col).max().alias(f"max_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
+    # min_aggs = [pl.col(metric_col).min().alias(f"min_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
+    
+    
+    # lf.group_by(cols).agg(max_aggs).collect().write_csv(output_dir / "max_var.csv")
+    # lf.group_by(cols).agg(min_aggs).collect().write_csv(output_dir / "min_var.csv")
 
     return 0
 
@@ -502,17 +505,20 @@ def statistics_data(lf: pl.LazyFrame, path: Path) -> int:
     slf = agg_data(lf, SEQ_COLS, aggs)
 
     with xlsxwriter.Workbook(output) as workbook:
-        cols = ["dataset_name", "level", "trans_type", "trans_axis", "lighting_enabled"]
+        method_cols = ["method", "virtual_sampling_method", "lighting_enabled"]
+        agg_data(slf, method_cols, aggs).collect().write_excel(workbook=workbook, worksheet="all")
+        
+        cols = ["dataset_name", "level", "trans_type", "trans_axis", "lighting_enabled", "method", "virtual_sampling_method"]
         agg_data(slf, cols, aggs).collect().write_excel(workbook=workbook, worksheet="var")
 
-        ds_cols = ["dataset_name", "level", "lighting_enabled"]
+        ds_cols = ["dataset_name", "level", "lighting_enabled", "method", "virtual_sampling_method"]
         agg_data(slf, ds_cols, aggs).collect().write_excel(workbook=workbook, worksheet="ds")
 
-        trans_cols = ["trans_type", "trans_axis", "lighting_enabled"]
+        trans_cols = ["trans_type", "trans_axis", "lighting_enabled", "method", "virtual_sampling_method"]
         agg_data(slf, trans_cols, aggs).collect().write_excel(workbook=workbook, worksheet="trans")
 
-        method_cols = ["method", "virtual_sampling_method", "lighting_enabled"]
-        agg_data(slf, method_cols, aggs).collect().write_excel(workbook=workbook, worksheet="method")
+        samples_cols = ["true_samples", "virtual_samples", "lighting_enabled", "method", "virtual_sampling_method"]
+        agg_data(slf, samples_cols, aggs).collect().write_excel(workbook=workbook, worksheet="samples")
 
     return 0
 
@@ -560,7 +566,7 @@ def main() -> int:
         "level": 0,
         "lighting_enabled": False,
         "method": "lin",
-        # "true_samples": 10,
+        "true_samples": 10,
         "virtual_sampling_method": "none",
         "virtual_samples": 0,
         "trans_type": "trans",
