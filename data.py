@@ -393,64 +393,6 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
     plt.show()
 
 
-def check_data(lf: pl.LazyFrame, path: Path) -> int:
-    output_dir = Path.cwd() / "data" / "blti" / "chk" / path.name
-    output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-    for _p in output_dir.glob("*.csv"):
-        _p.unlink()
-
-    # peaks = []
-    
-    # for metric_col in METRIC_COLS:
-    #     peaks.append(pl.col(metric_col).max().alias(f"max_{metric_col}"))
-    #     # peaks.append(pl.col(metric_col).min().alias(f"min_{metric_col}"))
-    #     # peaks.append(pl.col(metric_col).quantile(0.10).alias(f"p10_{metric_col}"))
-    #     # peaks.append(pl.col(metric_col).quantile(0.99).alias(f"p99_{metric_col}"))
-       
-
-    # lf.select(peaks).collect().write_csv(output_dir / "all.csv")
-
-    cols = [pl.col("dataset_name"), pl.col("level"), pl.col("lighting_enabled"), pl.col("trans_type"), pl.col("trans_axis")]
-    for metric_col in METRIC_COLS:
-        (
-            lf
-            .filter(pl.col(metric_col) > 3)
-            .sort(metric_col, descending=True)
-            .with_columns(
-                pl.concat_str(
-                    [pl.col(c).cast(pl.String) for c in SEQ_COLS],
-                    separator="-"
-                ).alias("seq")
-            )
-            .group_by(
-                ["dataset_name", "level", "trans_type", "trans_axis", "lighting_enabled"],
-                maintain_order=True
-            )
-            .agg(
-                pl.col("seq").first(),
-                pl.col("frame_idx").first(),
-                pl.col(metric_col).first()
-            )
-            .select(["seq", "frame_idx", metric_col])
-        ).collect().write_csv(output_dir / f"{metric_col}_max_3.csv")
-
-        #     group.write_parquet(path.parent / "r1024" / f"{ds}-{str(level)}-{"l" if lit else "n"}.parquet")
-        # df.write_csv(output_dir / "min_all.csv")
-    # lf.filter(pl.any_horizontal([pl.col(metric_col) == pl.col(metric_col).min() for metric_col in METRIC_COLS ])).collect().write_csv(output_dir / "min_all.csv")
-
-    # max_aggs = [pl.col(metric_col).max().alias(f"max_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
-    # min_aggs = [pl.col(metric_col).min().alias(f"min_{idx}") for idx, metric_col in enumerate(METRIC_COLS)]
-    
-    
-    # lf.group_by(cols).agg(max_aggs).collect().write_csv(output_dir / "max_var.csv")
-    # lf.group_by(cols).agg(min_aggs).collect().write_csv(output_dir / "min_var.csv")
-
-    return 0
-
-
 def diff_data(path: Path) -> int:
     for p in path.glob("*.csv"):
         df1 = pl.read_csv(p)
@@ -469,8 +411,8 @@ def diff_data(path: Path) -> int:
 
 
 def split_parquet_file(path: Path) -> int:
-    paths = [path / "part-00000.parquet"]
-    lf = pl.scan_parquet(paths)
+    # paths = [path / "part-00000.parquet", path / "part-00000.parquet", path / "part-00000.parquet", path / "part-00000.parquet"]
+    lf = load_data(path)
     print(load_col_data(lf, ["dataset_name", "level", "lighting_enabled"]))
 
     df = lf.collect()
@@ -545,10 +487,7 @@ def main() -> int:
         print(f"Found {data_rows} rows data.")
 
     if args.check:
-        if args.frame:
-            return statistics_data(lf, args.data_dir)
-    
-        return check_data(lf, args.data_dir)
+        return statistics_data(lf, args.data_dir)
 
     """
     'dataset_name': ['Aneurism1', 'Aneurism2', 'Head1', 'Head2', 'ML1', 'ML2', 'Sphere', 'Tree1', 'Tree2'], 
@@ -602,7 +541,7 @@ def main() -> int:
     #     show_stem(plf, "method", "blti_0", "virtual_sampling_method")
     #     print(plf.collect().to_dicts())
     #step 3: frame best
-    filter_data(lf, filter_by).sort(pl.col("blti_0")).collect().write_csv("check1.csv")
+    # filter_data(lf, filter_by).sort(pl.col("blti_0")).collect().write_csv("check1.csv")
 
     return 0
 

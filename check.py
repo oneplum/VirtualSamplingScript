@@ -11,10 +11,6 @@ import blti as b
 import data as d
 
 def show_img(data: list[tuple[np.ndarray, str, str | None, tuple | None]], title: str, path: Path) -> int:
-    path.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
     c = len(data)
     col = min(3, c)
     row = math.ceil(c / col)
@@ -23,7 +19,7 @@ def show_img(data: list[tuple[np.ndarray, str, str | None, tuple | None]], title
     for ax, (px, label, cmap, conf) in zip(axes.flat, data):
         if cmap == "hot":
             im = ax.imshow(px, cmap='hot')
-            fig.colorbar(im, ax=ax, shrink=0.8)
+            fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04, shrink=0.5)
         elif cmap == "gray":
             if not conf:
                 conf = (0, 1)
@@ -112,6 +108,114 @@ def compute_sequence(path: Path, output_dir: Path, t: int = 1, k: int = 0) -> tu
     return path.name, frame_obj, ""
 
 
+def _seq_col() -> d.pl.Expr:
+    return d.pl.concat_str(
+        [
+            d.pl.when(c == "lighting_enabled" and d.pl.col(c) == True)
+            .then(d.pl.lit("l"))
+            .when(c == "lighting_enabled" and d.pl.col(c) == False)
+            .then(d.pl.lit("n"))
+            .when(c == "virtual_sampling_method" and d.pl.col(c) == "none")
+            .then(d.pl.lit("n"))
+            .otherwise(d.pl.col(c).cast(d.pl.String))
+            for c in d.SEQ_COLS
+        ],
+        separator="-"
+    ).alias("seq")
+
+
+def check_data(lf: d.pl.LazyFrame, path: Path) -> int:
+    # step 1: sequences count
+    n_seq = lf.group_by(d.SEQ_COLS).len().select(d.pl.len()).collect().item()
+    print(f"{n_seq} sequences")
+
+    # step 2: sequencies do not include 98 results
+    sdf = lf.group_by(d.SEQ_COLS).len().filter(d.pl.col("len") != 98).with_columns(_seq_col()).select([d.pl.col("seq"), d.pl.col("len")]).collect()
+    if len(sdf) > 0:
+        print(f"found {len(sdf)} unexcepted sequences.")
+        sdf.write_csv(path / "unexcepted_seq.csv")
+    else:
+        print("all sequences valid")
+
+    return 0
+
+
+def statistic_data(lf: d.pl.LazyFrame, path: Path) -> int: 
+    d.pl.concat([
+        lf.select([
+            d.pl.col(c).mean().alias("mean"),
+            d.pl.col(c).max().alias("max"),
+            d.pl.col(c).min().alias("min"),
+            d.pl.col(c).quantile(0.10).alias("p10"),
+            d.pl.col(c).quantile(0.99).alias("p99"),
+            d.pl.col(c).quantile(0.999).alias("p999"),
+            d.pl.lit(c).alias("band_idx"),
+        ])
+        for c in d.METRIC_COLS
+    ]).collect().write_csv(path / "statistic.csv")
+
+    return 0
+
+
+def analysis_data(lf: d.pl.LazyFrame, path: Path, dir: Path | None = None, k: int | None = None, score: float | None = None) -> int:
+    if k is None:
+        k = 0
+        bands = d.METRIC_COLS
+    else:
+        bands = [d.METRIC_COLS[k]]
+
+    for metric_col in bands:
+        m_path = path / metric_col
+        m_path.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        f_cols = ["dataset_name", "level", "trans_type", "trans_axis", "lighting_enabled"]
+        flf = (
+            lf.filter(d.pl.col(metric_col) > (d.pl.col(metric_col).quantile(0.999) if score is None else score))
+            .sort(metric_col, descending=True)
+            .with_columns(_seq_col())
+            .group_by(f_cols, maintain_order=True)
+            .agg(
+                d.pl.col("seq").first(),
+                d.pl.col("frame_idx").first(),
+                d.pl.col(metric_col).first()
+            )
+        )
+
+        flf.select(["seq", "frame_idx", metric_col]).collect().write_csv(m_path / f"{metric_col}_p999.csv")
+
+        if dir is not None:
+            for item in flf.collect().iter_rows(named=True):
+                output_dir = m_path / item["seq"]
+                output_dir.mkdir(
+                    parents=True,
+                    exist_ok=True,
+                )
+
+                for _p in output_dir.glob("*.png"):
+                    _p.unlink()
+                name, row, error = compute_sequence(dir / item["seq"], output_dir, item["frame_idx"], k)
+                if error:
+                    print(f"{name}: {error}")
+                    return 0
+
+                # find best
+                filter_by = {col: row[col] for col in f_cols + ["frame_idx"]}
+                bseq, bfidx, bb = d.filter_data(lf, filter_by).sort(d.pl.col(metric_col)).head(1).with_columns(_seq_col()).select(["seq", "frame_idx", metric_col]).collect().row(0)
+                compute_sequence(dir / bseq, output_dir, bfidx, k)
+
+                if row[metric_col] == item[metric_col]:
+                    print("pass")
+                else:
+                    print(item[metric_col])
+                    print(row)
+
+        k += 1
+
+    return 0
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check exceptional data.")
 
@@ -120,7 +224,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--input-dir",
         type=Path,
         required=True,
-        help="Directory containing image sequences.",
+        help="Directory containing blti data.",
     )
 
     parser.add_argument(
@@ -132,17 +236,39 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "-t",
-        type=int,
-        default=1,
-        help="Frame idx",
+        "--img-dir",
+        type=Path,
+        help="Directory containing image sequences.",
+    )
+
+    parser.add_argument(
+        "-c",
+        action="store_true",
+        help="check sequences whether valid",
+    )
+
+    parser.add_argument(
+        "-s",
+        action="store_true",
+        help="export blti statistic data to csv file",
+    )
+
+    parser.add_argument(
+        "-a",
+        action="store_true",
+        help="analyse unexcepted data",
     )
 
     parser.add_argument(
         "-k",
         type=int,
-        default=0,
         help="Band idx",
+    )
+
+    parser.add_argument(
+        "--score",
+        type=float,
+        help="Blti score",
     )
 
     return parser
@@ -155,19 +281,24 @@ def main() -> int:
     if not args.input_dir.is_dir():
         parser.error(f"Input directory does not exist: {args.input_dir}")
 
-    args.output_dir.mkdir(
+    output_dir = args.output_dir / "check" / args.input_dir.name
+    output_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    name, row, error = compute_sequence(args.input_dir, args.output_dir, args.t, args.k)
+    # for _p in output_dir.glob("*.csv"):
+    #     _p.unlink()
+    lf = d.load_data(args.input_dir)
 
-    if error:
-        print(f"{name}: {error}")
+    if args.c:
+        check_data(lf, output_dir)
 
-        return 0
+    if args.s:
+        statistic_data(lf, output_dir)
 
-    print(row)
+    if args.a:
+        analysis_data(lf, output_dir, args.img_dir, args.k, args.score)
 
     return 0
 
