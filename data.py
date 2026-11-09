@@ -224,7 +224,7 @@ def process_data(
 
     if group_by:
         if aggs:
-            grp_aggs = {agg_type: {agg_col: (f"{agg_type}_{agg_col}" if agg_type != "mean" else None) for agg_col in aggs[1]} for agg_type in aggs[0] }
+            grp_aggs = {agg_type: {agg_col: (f"{agg_type}_{agg_col}" if len(aggs[0]) == 1 else None) for agg_col in aggs[1]} for agg_type in aggs[0] }
         else:
             grp_aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
 
