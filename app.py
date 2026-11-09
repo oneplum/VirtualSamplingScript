@@ -15,10 +15,11 @@ from dash import ALL, Input, Output, State, ctx, dcc, html
 from plotly.subplots import make_subplots
 
 from blti import BLTI_K, GAUSSIAN_SCALES
-from common import COL_META, ColMeta, FrameBasic
-from data import DELTA_COL, X_COL, Y_COL, load_col_data, load_data, process_data
+from common import COL_META, ColMeta, FrameBasic, get_label
+from data import DELTA_COL, X_COL, Y_COL, SEQ_COLS, METRIC_COLS, load_col_data, load_data, to_long, process_data
 
-FILTER_COLS = [col.name for col in fields(FrameBasic)]
+ALL_VAR_COLS = [*SEQ_COLS, "frame_idx"]
+FILTER_COLS = SEQ_COLS
 FILTER_DEFAULT = {
     # "dataset_name": ["Head1"],
     # "level": [0],
@@ -30,57 +31,22 @@ FILTER_DEFAULT = {
     # "trans_axis": ["y"],
 }
 
-FACET_COLS = [
-    "dataset_name",
-    "level",
-    "lighting_enabled",
-    "trans_type",
-    "trans_axis",
-    "method",
-]
+FACET_COLS = ALL_VAR_COLS
 FACET_DEFAULT = ["lighting_enabled"]
 
-GROUP_COLS = [
-    "method",
-    "true_samples",
-    "virtual_sampling_method",
-    "virtual_samples",
-    "trans_type",
-    "trans_axis",
-    "dataset_name",
-    "level",
-    "lighting_enabled",
-]
+GROUP_COLS = ALL_VAR_COLS
 GROUP_DEFAULT = [
     "method",
     "virtual_sampling_method",
 ]
 
-X_COLS = [
-    "band_idx",
-    "true_samples",
-    "level",
-    "dataset_name",
-    "trans_type",
-    "trans_axis",
-]
+X_COLS = ALL_VAR_COLS
+Y_COLS = METRIC_COLS
 
-BASELINES = {
-    "method": "lin",
-    "virtual_sampling_method": "none",
-}
-
-
-STATISTIC_MEAN = 0
-STATISTIC_DELTA = 1
-STATISTIC_PERCENTILE = 3
-STATISTIC_MODES = [STATISTIC_MEAN, STATISTIC_DELTA, STATISTIC_PERCENTILE]
-STATISTIC_LABEL = {
-    STATISTIC_MEAN: "Mean",
-    STATISTIC_DELTA: "Delta vs. Baseline",
-    STATISTIC_PERCENTILE: "P10-P90",
-}
-STATISTIC_DEFAULT = STATISTIC_MEAN
+# BASELINES = {
+#     "method": "lin",
+#     "virtual_sampling_method": "none",
+# }
 
 COL_META[X_COL] = ColMeta(
     label="Band Center Scale (δ in pixels)",
@@ -97,6 +63,19 @@ TRACE_MODE_LINE = "line"
 TRACE_MODE_LINE_MARKER = "lines+markers"
 TRACE_MODE_MARKER = "markers"
 TRACE_MODE_LOLLIPOP = "lollipop"
+TRACE_MODES = [
+    TRACE_MODE_LINE,
+    TRACE_MODE_LINE_MARKER,
+    TRACE_MODE_LOLLIPOP
+]
+
+STATISTIC_MEAN = "mean"
+STATISTIC_MEDIAN = "median"
+STATISTIC_MAX = "max"
+STATISTIC_PERCENTILE_10 = "p10"
+STATISTIC_PERCENTILE_90 = "p10"
+STATISTIC_MODES = [STATISTIC_MEAN, STATISTIC_MEDIAN, STATISTIC_PERCENTILE_10, STATISTIC_PERCENTILE_90]
+
 
 SETTING_COLORS = px.colors.qualitative.Dark24 + px.colors.qualitative.Light24
 
@@ -111,9 +90,7 @@ def _label(col_names: list[str], col_values: list[Any] | tuple[Any, ...]):
     vmethod_idx = _find_idx(col_names, "virtual_sampling_method")
 
     if len(col_names) == 1 and vmethod_idx == 0:
-        return COL_META["virtual_sampling_method"].get_val_label(
-            col_values[vmethod_idx]
-        )
+        return get_label("virtual_sampling_method", col_values[vmethod_idx])
 
     for col, val in zip(col_names, col_values):
         if col == "level" and val == 0:
@@ -126,7 +103,7 @@ def _label(col_names: list[str], col_values: list[Any] | tuple[Any, ...]):
                 vs = _find_idx(col_names, "virtual_samples")
                 if vs >= 0:
                     labels.append(
-                        f"{col_values[vs]} Virtual {COL_META[col].get_val_label(val)} Samples"
+                        f"{col_values[vs]} Virtual {get_label(col, val)} Samples"
                     )
                     continue
 
@@ -141,41 +118,291 @@ def _label(col_names: list[str], col_values: list[Any] | tuple[Any, ...]):
             continue
 
         if col in COL_META:
-            labels.append(COL_META[col].get_val_label(val))
+            labels.append(get_label(col, val))
         else:
             labels.append(val)
 
     return ", ".join(labels)
 
 
-def build_argument_parser() -> argparse.ArgumentParser:
-
-    parser = argparse.ArgumentParser(description="Compute BLTI for image sequences.")
-
-    parser.add_argument(
-        "-d",
-        "--data-dir",
-        type=Path,
-        required=True,
-        help="Path to parquet data",
-    )
-
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable Dash debug mode.",
-    )
-
-    return parser
-
-
 def make_layout(
     filter_data: dict[str, list],
-    facet_cols: list[str],
-    group_cols: list[str],
-    x_cols: list[str],
-    statistic_modes: list[int],
+    facet_cols: list[str] | None = None,
+    group_cols: list[str] | None = None,
+    x_cols: list[str] | None = None,
+    y_cols: list[str] | None = None,
+    stats_modes: list[str] | None = None,
+    trace_modes: list[str] | None = None,
 ) -> html.Div:
+    filter_div = [
+        html.H4("Filter By:"),
+        html.Div(
+            [
+                html.Div(
+                    [
+                        html.Label(
+                            f"{get_label(filter_col)}: ",
+                            style={"fontWeight": "bold"},
+                        ),
+                        dcc.Dropdown(
+                            id={
+                                "type": "filter-dropdown",
+                                "column": filter_col,
+                            },
+                            options=[
+                                {
+                                    "label": get_label(filter_col, val),
+                                    "value": val,
+                                }
+                                for val in filter_values
+                            ],
+                            value=FILTER_DEFAULT.get(filter_col, None),
+                            clearable=True,
+                            debounce=True,
+                            closeOnSelect=False,
+                            multi=True,
+                        ),
+                    ],
+                    style={
+                        "flex": "1",
+                        "minWidth": "0",
+                        "margin": "auto 2px",
+                    },
+                )
+                for filter_col, filter_values in filter_data.items()
+            ],
+            style={
+                "display": "flex",
+                "width": "100%",
+                "marginBottom": "15px",
+            },
+        ),
+    ]
+
+    conf_divs = []
+    if facet_cols:
+        conf_divs.append(
+            html.Div(
+                [
+                    html.Label(
+                        "Facet By: ",
+                        style={"fontWeight": "bold"},
+                    ),
+                    dcc.Dropdown(
+                        id="facet-dropdown",
+                        options=[
+                            {
+                                "label": get_label(facet_col),
+                                "value": facet_col,
+                            }
+                            for facet_col in facet_cols
+                        ],
+                        value=FACET_DEFAULT,
+                        clearable=True,
+                        debounce=True,
+                        closeOnSelect=False,
+                        multi=True,
+                    ),
+                ],
+                style={
+                    "minWidth": "0",
+                    "flex": "1",
+                    "margin": "auto 2px",
+                },
+            )
+        )
+
+    if group_cols:
+        conf_divs.append(
+            html.Div(
+                [
+                    html.Label(
+                        "Group By: ",
+                        style={"fontWeight": "bold"},
+                    ),
+                    dcc.Dropdown(
+                        id="group-dropdown",
+                        options=[
+                            {
+                                "label": get_label(group_col),
+                                "value": group_col,
+                            }
+                            for group_col in group_cols
+                        ],
+                        value=GROUP_DEFAULT,
+                        clearable=False,
+                        debounce=True,
+                        closeOnSelect=False,
+                        multi=True,
+                    ),
+                ],
+                style={
+                    "minWidth": "0",
+                    "flex": "1",
+                    "margin": "auto 2px",
+                },
+            )
+        )
+
+    if x_cols:
+        conf_divs.append(
+            html.Div(
+                [
+                    html.Label(
+                        "Axis X: ",
+                        style={"fontWeight": "bold"},
+                    ),
+                    dcc.Dropdown(
+                        id="xcol-dropdown",
+                        options=[
+                            {
+                                "label": get_label(x_col),
+                                "value": x_col,
+                            }
+                            for x_col in x_cols
+                        ],
+                        clearable=True,
+                        debounce=True,
+                        closeOnSelect=False,
+                        multi=True,
+                    ),
+                ],
+                style={
+                    "minWidth": "0",
+                    "flex": "1",
+                    "margin": "auto 2px",
+                },
+            )
+        )
+
+    if y_cols:
+        conf_divs.append(
+            html.Div(
+                [
+                    html.Label(
+                        "Axis Y: ",
+                        style={"fontWeight": "bold"},
+                    ),
+                    dcc.Dropdown(
+                        id="ycol-dropdown",
+                        options=[
+                            {
+                                "label": get_label(y_col),
+                                "value": y_col,
+                            }
+                            for y_col in y_cols
+                        ],
+                        clearable=True,
+                        debounce=True,
+                        closeOnSelect=False,
+                        multi=True,
+                    ),
+                ],
+                style={
+                    "minWidth": "0",
+                    "flex": "1",
+                    "margin": "auto 2px",
+                },
+            )
+        )
+
+    if stats_modes:
+        conf_divs.append(
+            html.Div(
+                [
+                    html.Label(
+                        "Statistic Mode: ",
+                        style={"fontWeight": "bold"},
+                    ),
+                    dcc.Dropdown(
+                        id="smode-dropdown",
+                        options=[
+                            {
+                                "label": get_label("stats_mode", s_mode),
+                                "value": s_mode,
+                            }
+                            for s_mode in stats_modes
+                        ],
+                        # value=stats_modes[0],
+                        clearable=True,
+                        debounce=True,
+                        closeOnSelect=False,
+                        multi=True,
+                    ),
+                ],
+                style={
+                    "minWidth": "0",
+                    "flex": "1",
+                    "margin": "auto 2px",
+                }
+            )
+        )
+
+
+    if trace_modes:
+        conf_divs.append(
+            html.Div(
+                [
+                    html.Label(
+                        "Trace Mode: ",
+                        style={"fontWeight": "bold"},
+                    ),
+                    dcc.Dropdown(
+                        id="tmode-dropdown",
+                        options=[
+                            {
+                                "label": get_label("trace_mode", t_mode),
+                                "value": t_mode,
+                            }
+                            for t_mode in trace_modes
+                        ],
+                        value=trace_modes[0],
+                        clearable=False,
+                    ),
+                ],
+                style={
+                    "minWidth": "0",
+                    "flex": "1",
+                    "margin": "auto 2px",
+                }
+            )
+        )
+
+    conf_divs.append(
+        html.Div(
+            [
+                html.Label(
+                    "Action: ",
+                    style={"fontWeight": "bold"},
+                ),
+                html.Div(
+                    [
+                        html.Button(
+                            "Download CSV", id="download-csv-btn"
+                        ),
+                        dcc.Download(id="download-csv"),
+                    ],
+                    style={},
+                ),
+            ],
+            style={
+                "minWidth": "0",
+                "flex": "1",
+                "margin": "auto 2px",
+            },
+        )
+    )
+
+    filter_div.append(
+        html.Div(
+            conf_divs,
+            style={
+                "width": "100%",
+                "display": "flex",
+            },
+        )
+    )
+            
     return html.Div(
         [
             html.H1(
@@ -189,198 +416,7 @@ def make_layout(
                 },
             ),
             html.Div(
-                [
-                    html.H4("Filter By:"),
-                    html.Div(
-                        [
-                            html.Div(
-                                [
-                                    html.Label(
-                                        f"{COL_META[filter_col].label if filter_col in COL_META else filter_col}: ",
-                                        style={"fontWeight": "bold"},
-                                    ),
-                                    dcc.Dropdown(
-                                        id={
-                                            "type": "filter-dropdown",
-                                            "column": filter_col,
-                                        },
-                                        options=[
-                                            {
-                                                "label": COL_META[
-                                                    filter_col
-                                                ].get_val_label(val)
-                                                if filter_col in COL_META
-                                                else val,
-                                                "value": val,
-                                            }
-                                            for val in filter_values
-                                        ],
-                                        value=FILTER_DEFAULT.get(filter_col, None),
-                                        clearable=True,
-                                        debounce=True,
-                                        closeOnSelect=False,
-                                        multi=True,
-                                    ),
-                                ],
-                                style={
-                                    "flex": "1",
-                                    "minWidth": "0",
-                                    "margin": "auto 2px",
-                                },
-                            )
-                            for filter_col, filter_values in filter_data.items()
-                        ],
-                        style={
-                            "display": "flex",
-                            "width": "100%",
-                            "marginBottom": "15px",
-                        },
-                    ),
-                    html.Div(
-                        [
-                            html.Div(
-                                [
-                                    html.Label(
-                                        "Facet By: ",
-                                        style={"fontWeight": "bold"},
-                                    ),
-                                    dcc.Dropdown(
-                                        id="facet-dropdown",
-                                        options=[
-                                            {
-                                                "label": COL_META[facet_col].label
-                                                if facet_col in COL_META
-                                                else facet_col,
-                                                "value": facet_col,
-                                            }
-                                            for facet_col in facet_cols
-                                        ],
-                                        value=FACET_DEFAULT,
-                                        clearable=True,
-                                        debounce=True,
-                                        closeOnSelect=False,
-                                        multi=True,
-                                    ),
-                                ],
-                                style={
-                                    "minWidth": "0",
-                                    "flex": "1",
-                                    "margin": "auto 2px",
-                                },
-                            ),
-                            html.Div(
-                                [
-                                    html.Label(
-                                        "Group By: ",
-                                        style={"fontWeight": "bold"},
-                                    ),
-                                    dcc.Dropdown(
-                                        id="group-dropdown",
-                                        options=[
-                                            {
-                                                "label": COL_META[group_col].label
-                                                if group_col in COL_META
-                                                else group_col,
-                                                "value": group_col,
-                                            }
-                                            for group_col in group_cols
-                                        ],
-                                        value=GROUP_DEFAULT,
-                                        clearable=False,
-                                        debounce=True,
-                                        closeOnSelect=False,
-                                        multi=True,
-                                    ),
-                                ],
-                                style={
-                                    "minWidth": "0",
-                                    "flex": "1",
-                                    "margin": "auto 2px",
-                                },
-                            ),
-                            html.Div(
-                                [
-                                    html.Label(
-                                        "Axis X: ",
-                                        style={"fontWeight": "bold"},
-                                    ),
-                                    dcc.Dropdown(
-                                        id="xcol-dropdown",
-                                        options=[
-                                            {
-                                                "label": STATISTIC_LABEL.get(
-                                                    x_col, x_col
-                                                ),
-                                                "value": x_col,
-                                            }
-                                            for x_col in x_cols
-                                        ],
-                                        value=X_COL,
-                                        clearable=False,
-                                    ),
-                                ],
-                                style={
-                                    "minWidth": "0",
-                                    "flex": "1",
-                                    "margin": "auto 2px",
-                                },
-                            ),
-                            html.Div(
-                                [
-                                    html.Label(
-                                        "Statistic: ",
-                                        style={"fontWeight": "bold"},
-                                    ),
-                                    dcc.Dropdown(
-                                        id="stats-dropdown",
-                                        options=[
-                                            {
-                                                "label": STATISTIC_LABEL.get(
-                                                    s_mode, s_mode
-                                                ),
-                                                "value": s_mode,
-                                            }
-                                            for s_mode in statistic_modes
-                                        ],
-                                        value=STATISTIC_DEFAULT,
-                                        clearable=False,
-                                    ),
-                                ],
-                                style={
-                                    "minWidth": "0",
-                                    "flex": "1",
-                                    "margin": "auto 2px",
-                                },
-                            ),
-                            html.Div(
-                                [
-                                    html.Label(
-                                        "Action: ",
-                                        style={"fontWeight": "bold"},
-                                    ),
-                                    html.Div(
-                                        [
-                                            html.Button(
-                                                "Download CSV", id="download-csv-btn"
-                                            ),
-                                            dcc.Download(id="download-csv"),
-                                        ],
-                                        style={},
-                                    ),
-                                ],
-                                style={
-                                    "minWidth": "0",
-                                    "flex": "1",
-                                    "margin": "auto 2px",
-                                },
-                            ),
-                        ],
-                        style={
-                            "width": "100%",
-                            "display": "flex",
-                        },
-                    ),
-                ],
+                filter_div,
                 style={
                     "width": "95%",
                     "margin": "10px auto",
@@ -402,11 +438,12 @@ def get_data(
     filters: list[Any],
     facets: Any,
     groups: Any,
-    x_col: Any = X_COL,
+    x_cols: Any | None = None,
+    y_cols: Any | None = None,
     stats: Any | None = None,
-    baselines: Any | None = None,
+    # baselines: Any | None = None,
     debug: bool = False,
-    is_long: bool = True,
+    # is_long: bool = True,
 ) -> pl.DataFrame:
     filter_by = {
         filter_ipt["id"]["column"]: filter_ipt["value"]
@@ -414,34 +451,52 @@ def get_data(
         if filter_ipt["value"]
     }
 
-    use_frame = stats == STATISTIC_PERCENTILE
+    # use_frame = stats == STATISTIC_PERCENTILE
 
-    if stats != STATISTIC_DELTA:
-        baselines = None
+    # if stats != STATISTIC_DELTA:
+    #     baselines = None
 
-    group_by = list(dict.fromkeys([*facets, *groups]))
+    cols = [*facets, *groups]
+    if x_cols:
+        cols.extend(x_cols)
+
+    group_by = list(dict.fromkeys(cols))
+    if not y_cols:
+        y_cols = METRIC_COLS
+    if not stats:
+        stats = [STATISTIC_MEAN]
+    aggs = (stats, y_cols)
+
     dlf = process_data(
         lf,
         filter_by,
         group_by,
-        baselines,
-        use_frame=use_frame,
+        aggs,
+        # use_frame=True,
         debug=debug,
-        is_long=is_long,
     )
     df = dlf.collect()
-    return df
+    return dlf
 
 
 def all_fig(
     df: pl.DataFrame,
-    facet_cols: list[str],
-    group_cols: list[str],
-    traces: list[tuple[str, str, str | None, str | None]],
-    x_col: str = X_COL,
+    x_col: str,
+    y_col: str,
+    facet_cols: list[str] | None = None,
+    group_cols: list[str] | None = None,
+    group_title: str = "",
+    trace_mode: str = TRACE_MODE_LINE,
+    fill_cols: tuple[str, str] | None = None
 ) -> go.Figure:
     if df.is_empty():
         return go.Figure().update_layout(title="No data")
+
+    sel_cols = [x_col, y_col, *facet_cols, *group_cols]
+    if fill_cols:
+        sel_cols.extend(fill_cols)
+
+    df = df.select(sel_cols)
 
     facets = (
         df.partition_by(facet_cols, maintain_order=True, as_dict=True)
@@ -451,8 +506,6 @@ def all_fig(
     n_facets = len(facets)
     ncols = min(2, n_facets)
     nrows = math.ceil(n_facets / ncols)
-
-    y_col = traces[0][1]
 
     fig = make_subplots(
         rows=nrows,
@@ -464,6 +517,9 @@ def all_fig(
         ],
     )
 
+    x_data = list(dict.fromkeys(df[x_col]))
+    x_map = {v: k for k, v in enumerate(x_data)}
+
     for facet_idx, (facet_val, rows) in enumerate(facets.items()):
         row = facet_idx // ncols + 1
         col = facet_idx % ncols + 1
@@ -473,6 +529,7 @@ def all_fig(
             if group_cols
             else {(): rows}
         )
+
         n_groups = len(groups)
         width = 0.6 / max(1, n_groups)
 
@@ -484,126 +541,107 @@ def all_fig(
 
             group_label = _label(group_cols, group_value) if group_cols else ""
 
-            for t_idx, (t_mode, t_col, ex_col, t_name) in enumerate(traces):
-                trace_name = (
-                    (t_name if t_name else t_col.upper())
-                    if not group_label
-                    else group_label
+            color = SETTING_COLORS[group_idx % len(SETTING_COLORS)]
+
+            if trace_mode == TRACE_MODE_LOLLIPOP:
+                is_show_hline = True
+                diff = data[y_col].to_numpy()
+                x_data = (
+                    np.array([x_map[v] for v in data[x_col]], dtype=float)
+                    + (group_idx - (n_groups - 1) / 2) * width
                 )
-                if t_mode == TRACE_MODE_LOLLIPOP:
-                    is_show_hline = True
-                    diff = data[t_col].to_numpy()
-                    band_x = (
-                        data[x_col].to_numpy()
-                        + (group_idx - (n_groups - 1) / 2) * width
-                    )
 
-                    stem_x = []
-                    stem_y = []
-                    for x, y in zip(band_x, diff):
-                        stem_x.extend([x, x, None])
-                        stem_y.extend([0, y, None])
+                stem_x = []
+                stem_y = []
+                for x, y in zip(x_data, diff):
+                    stem_x.extend([x, x, None])
+                    stem_y.extend([0, y, None])
 
-                    color = SETTING_COLORS[group_idx % len(SETTING_COLORS)]
+                fig.add_trace(
+                    go.Scatter(
+                        x=stem_x,
+                        y=stem_y,
+                        mode="lines",
+                        line=dict(width=2, color=color),
+                        showlegend=False,
+                        hoverinfo="skip",
+                        legendgroup=group_label,
+                    ),
+                    row=row,
+                    col=col,
+                )
 
-                    fig.add_trace(
-                        go.Scatter(
-                            x=stem_x,
-                            y=stem_y,
-                            mode="lines",
-                            line=dict(width=2, color=color),
-                            showlegend=False,
-                            hoverinfo="skip",
-                            legendgroup=trace_name,
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_data,
+                        y=diff,
+                        mode="markers",
+                        name=group_label,
+                        marker=dict(size=9, color=color),
+                        legendgroup=group_label,
+                        showlegend=(facet_idx == 0),
+                        hovertemplate=(
+                            f"{group_label}"
+                            "<br>"
+                            "%{x}"
+                            "<br>"
+                            "BLTI: %{y:.4f}"
+                            "<extra></extra>"
                         ),
-                        row=row,
-                        col=col,
-                    )
+                    ),
+                    row=row,
+                    col=col,
+                )
+            elif trace_mode == TRACE_MODE_FILL:
+                x = data[x_col].to_list()
+                pl = data[fill_cols[0]].to_list()
+                ph = data[fill_cols[1]].to_list()
 
-                    fig.add_trace(
-                        go.Scatter(
-                            x=band_x,
-                            y=diff,
-                            mode="markers",
-                            name=trace_name,
-                            marker=dict(size=9, color=color),
-                            legendgroup=trace_name,
-                            showlegend=(facet_idx == 0),
-                            hovertemplate=(
-                                f"{trace_name}"
-                                "<br>"
-                                "Band: %{x}"
-                                "<br>"
-                                "ΔBLTI: %{y:.4f}"
-                                "<extra></extra>"
-                            ),
+                fig.add_trace(
+                    go.Scatter(
+                        x=x + x[::-1],
+                        y=ph + pl[::-1],
+                        fill="toself",
+                        fillcolor="rgba(100, 150, 255, 0.2)",
+                        line={"color": "rgba(0,0,0,0)"},
+                        name=group_label,
+                        legendgroup=group_label,
+                        hoverinfo="skip",
+                        showlegend=(facet_idx == 0),
+                    ),
+                    row=row,
+                    col=col,
+                )
+            else:
+                fig.add_trace(
+                    go.Scatter(
+                        x=data[x_col],
+                        y=data[y_col],
+                        mode="lines",
+                        name=group_label,
+                        legendgroup=group_label,
+                        line=dict(color=color),
+                        showlegend=(facet_idx == 0),
+                        hovertemplate=(
+                            f"{group_label}<br>BLTI: %{{y:.4f}}<extra></extra>"
                         ),
-                        row=row,
-                        col=col,
-                    )
-                elif t_mode == TRACE_MODE_FILL:
-                    x = data[x_col].to_list()
-                    pl = data[t_col].to_list()
-                    ph = data[ex_col].to_list()
-
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x + x[::-1],
-                            y=ph + pl[::-1],
-                            fill="toself",
-                            fillcolor="rgba(100, 150, 255, 0.2)",
-                            line={"color": "rgba(0,0,0,0)"},
-                            name=trace_name,
-                            legendgroup=trace_name,
-                            hoverinfo="skip",
-                            showlegend=(facet_idx == 0),
-                        ),
-                        row=row,
-                        col=col,
-                    )
-                else:
-                    if group_cols:
-                        color = SETTING_COLORS[group_idx % len(SETTING_COLORS)]
-                    else:
-                        color = SETTING_COLORS[t_idx % len(SETTING_COLORS)]
-                    fig.add_trace(
-                        go.Scatter(
-                            x=data[x_col],
-                            y=data[t_col],
-                            mode=t_mode,
-                            name=trace_name,
-                            legendgroup=trace_name,
-                            line=dict(color=color),
-                            showlegend=(facet_idx == 0),
-                            hovertemplate=(
-                                f"{trace_name}<br>BLTI: %{{y:.4f}}<extra></extra>"
-                            ),
-                        ),
-                        row=row,
-                        col=col,
-                    )
-
-        if is_show_hline:
-            fig.add_hline(
-                y=0,
-                line_width=1,
-                line_color="black",
-                row=row,
-                col=col,
-            )
+                    ),
+                    row=row,
+                    col=col,
+                )
 
     fig.update_xaxes(
         matches="x",
         tickmode="array",
-        tickvals=data[x_col].to_list(),
-        ticktext=list(COL_META[x_col].values.values()),
+        tickvals=list(x_map.values()),
+        ticktext=[get_label(x_col, val) for val in x_map.keys()],
         showticklabels=True,
         ticks="outside",
         ticklen=5,
         showline=True,
         linewidth=1,
         linecolor="black",
-        title_text=COL_META[x_col].label if x_col in COL_META else x_col.upper(),
+        title_text=get_label(x_col),
     )
 
     fig.update_yaxes(
@@ -614,20 +652,13 @@ def all_fig(
         showline=True,
         linewidth=1,
         linecolor="black",
-        title_text=COL_META[y_col].label
-        if y_col in COL_META
-        else COL_META[Y_COL].label,
+        title_text=get_label(y_col)
     )
 
-    legent_title = ""
-    if group_cols:
-        if len(group_cols) == 1 and group_cols[0] == "virtual_sampling_method":
-            legent_title = "Virtual Sampling Method"
-        else:
-            legent_title = "Sampling Method"
+    legent_title = group_title
 
     fig.update_layout(
-        height=400 * nrows,
+        # height=400 * nrows,
         hovermode="x",
         template="plotly_white",
         legend_title=legent_title,
@@ -646,31 +677,52 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         Input("facet-dropdown", "value"),
         Input("group-dropdown", "value"),
         Input("xcol-dropdown", "value"),
-        Input("stats-dropdown", "value"),
+        Input("ycol-dropdown", "value"),
+        Input("smode-dropdown", "value"),
+        Input("tmode-dropdown", "value"),
+        # Input("stats-dropdown", "value"),
     )
-    def update_main_chart(filter_vals, sel_facets, sel_groups, sel_col, sel_stats):
+    def update_main_chart(filter_vals, sel_facets, sel_groups, sel_cols, sel_ycols, sel_stats, sel_trace):
         filters = ctx.inputs_list[0]
 
-        df = get_data(
-            lf, filters, sel_facets, sel_groups, sel_col, sel_stats, BASELINES, debug
+        dlf = get_data(
+            lf, filters, sel_facets, sel_groups, sel_cols, sel_ycols, sel_stats, debug=debug
         )
+
+        print(dlf.collect_schema())
+
+        if sel_cols:
+            sel_col = "-".join(sel_cols)
+            y_col = sel_ycols[0] if sel_ycols else "blti_0"
+            if len(sel_cols) > 1:
+                dlf = dlf.with_columns(pl.concat_str([pl.col(s_col) for s_col in sel_cols], separator="-").alias(sel_col)).drop(sel_cols)
+        else:
+            sel_col = X_COL
+            y_col = Y_COL
+            if not sel_ycols:
+                sel_ycols = METRIC_COLS
+            dlf = to_long(dlf, on_cols=sel_ycols, idx_cols=[*sel_facets, *sel_groups], var_col=sel_col, val_col=y_col)
 
         facet_cols = sel_facets
         group_cols = sel_groups
-        if sel_stats == STATISTIC_DELTA:
-            traces = [(TRACE_MODE_LOLLIPOP, DELTA_COL, None, None)]
-        elif sel_stats == STATISTIC_PERCENTILE:
-            facet_cols = facet_cols + group_cols
-            group_cols = None
-            traces = [
-                (TRACE_MODE_FILL, "p10", "p90", "10-90% envelope"),
-                (TRACE_MODE_LINE_MARKER, "median", None, None),
-                (TRACE_MODE_LINE_MARKER, "mean", None, None),
-            ]
-        else:
-            traces = [(TRACE_MODE_LINE_MARKER, Y_COL, None, None)]
 
-        return all_fig(df, facet_cols, group_cols, traces, sel_col)
+        
+        # if sel_stats == STATISTIC_DELTA:
+        #     traces = [(TRACE_MODE_LOLLIPOP, DELTA_COL, None, None)]
+        # elif sel_stats == STATISTIC_PERCENTILE:
+        #     facet_cols = facet_cols + group_cols
+        #     group_cols = None
+        #     traces = [
+        #         (TRACE_MODE_FILL, "p10", "p90", "10-90% envelope"),
+        #         (TRACE_MODE_LINE_MARKER, "median", None, None),
+        #         (TRACE_MODE_LINE_MARKER, "mean", None, None),
+        #     ]
+        # else:
+        #     traces = [(TRACE_MODE_LINE_MARKER, Y_COL, None, None)]
+
+        df = dlf.collect()
+
+        return all_fig(df, sel_col, y_col, facet_cols, group_cols, group_title=" ".join([get_label(col) for col in sel_groups]) if sel_groups else "", trace_mode=sel_trace)
 
     @app.callback(
         Output("download-csv", "data"),
@@ -682,11 +734,12 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         State("facet-dropdown", "value"),
         State("group-dropdown", "value"),
         State("xcol-dropdown", "value"),
-        State("stats-dropdown", "value"),
+        Input("ycol-dropdown", "value"),
+        # State("stats-dropdown", "value"),
         prevent_initial_call=True,
     )
     def download_data(
-        n_clicks, filter_vals, sel_facets, sel_groups, sel_col, sel_stats
+        n_clicks, filter_vals, sel_facets, sel_groups, sel_cols, sel_ycols
     ):
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
@@ -697,16 +750,36 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
             filters,
             sel_facets,
             sel_groups,
-            sel_col,
-            sel_stats,
-            BASELINES,
-            is_long=False,
-        )
+            sel_cols,
+            sel_ycols,
+            debug=debug
+        ).collect()
         return {
             "content": df.write_csv(),
             "filename": "data.csv",
             "type": "text/csv",
         }
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
+
+    parser = argparse.ArgumentParser(description="Compute BLTI for image sequences.")
+
+    parser.add_argument(
+        "-d",
+        "--data-dir",
+        type=Path,
+        required=True,
+        help="Path to blti data",
+    )
+
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable Dash debug mode.",
+    )
+
+    return parser
 
 
 def main() -> int:
@@ -724,7 +797,7 @@ def main() -> int:
     app = dash.Dash(__name__, title="BLTI Analysis")
 
     app.layout = make_layout(
-        filter_values, FACET_COLS, GROUP_COLS, X_COLS, STATISTIC_MODES
+        filter_values, FACET_COLS, GROUP_COLS, X_COLS, Y_COLS, STATISTIC_MODES, TRACE_MODES
     )
 
     register_callback(app, lf, args.debug)

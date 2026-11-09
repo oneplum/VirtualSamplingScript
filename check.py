@@ -216,6 +216,36 @@ def analysis_data(lf: d.pl.LazyFrame, path: Path, dir: Path | None = None, k: in
     return 0
 
 
+def split_parquet_file(lf: d.pl.LazyFrame, output_dir: Path) -> int:
+    print(d.load_col_data(lf, ["dataset_name", "level", "lighting_enabled"]))
+
+    df = lf.collect()
+    groups = df.partition_by(["dataset_name", "level", "lighting_enabled"], as_dict=True)
+
+    for (ds, level, lit), group in groups.items():
+        print(len(group))
+        group.write_parquet(output_dir / f"{ds}-{str(level)}-{"l" if lit else "n"}.parquet")
+
+    return 0
+
+
+# def diff_data(path: Path) -> int:
+#     for p in path.glob("*.csv"):
+#         df1 = d.pl.read_csv(p)
+
+#         p2 = p.parent.parent / f"{p.parent.name}a" / p.name
+#         df2 = d.pl.read_csv(p2)
+
+#         if not df1.equals(df2):
+#             diff1 = df1.join(df2, on=df1.columns, how="anti")
+#             print(p.name)
+#             print(diff1)
+
+#     print("done")
+
+#     return 0
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check exceptional data.")
 
@@ -242,21 +272,10 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "-c",
-        action="store_true",
-        help="check sequences whether valid",
-    )
-
-    parser.add_argument(
-        "-s",
-        action="store_true",
-        help="export blti statistic data to csv file",
-    )
-
-    parser.add_argument(
-        "-a",
-        action="store_true",
-        help="analyse unexcepted data",
+        "--action",
+        type=int,
+        default=0,
+        help="0: check sequences whether valid, 1: blti statistic data 2: analyse unexcepted data 3: split data",
     )
 
     parser.add_argument(
@@ -281,7 +300,7 @@ def main() -> int:
     if not args.input_dir.is_dir():
         parser.error(f"Input directory does not exist: {args.input_dir}")
 
-    output_dir = args.output_dir / "check" / args.input_dir.name
+    output_dir = args.output_dir #/ "check" / args.input_dir.name
     output_dir.mkdir(
         parents=True,
         exist_ok=True,
@@ -289,16 +308,23 @@ def main() -> int:
 
     # for _p in output_dir.glob("*.csv"):
     #     _p.unlink()
+
     lf = d.load_data(args.input_dir)
+    if lf is None:
+        print("No valid data files found.")
+        return 1
 
-    if args.c:
-        check_data(lf, output_dir)
-
-    if args.s:
-        statistic_data(lf, output_dir)
-
-    if args.a:
-        analysis_data(lf, output_dir, args.img_dir, args.k, args.score)
+    match args.action:
+        case 0:
+            check_data(lf, output_dir)
+        case 1:
+            statistic_data(lf, output_dir)
+        case 2:
+            analysis_data(lf, output_dir, args.img_dir, args.k, args.score)
+        case 3:
+            split_parquet_file(lf, output_dir)
+        case _:
+            check_data(lf, output_dir)
 
     return 0
 

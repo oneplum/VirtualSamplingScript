@@ -43,10 +43,14 @@ Y_COL = "blti"
 DELTA_COL = "diff"
 
 AGG_EXPRS = {
+    "max": lambda expr: expr.max(),
+    "min": lambda expr: expr.min(),
     "mean": lambda expr: expr.mean(),
     "median": lambda expr: expr.median(),
     "p10": lambda expr: expr.quantile(0.10),
     "p90": lambda expr: expr.quantile(0.90),
+    "p99": lambda expr: expr.quantile(0.99),
+    "p999": lambda expr: expr.quantile(0.999),
 }
 
 COL_ORDERS = {
@@ -57,6 +61,16 @@ COL_ORDERS = {
 
 
 def load_data(path: Path) -> pl.LazyFrame | None:
+    if not path.is_dir():
+        suffix = path.suffix.lower()
+
+        if suffix == ".parquet":
+            return pl.scan_parquet(path)
+        elif suffix == ".csv":
+            return pl.scan_csv(path)
+        else:
+            return None
+
     parquet_files = sorted(path.glob("*.parquet"))
 
     if parquet_files:
@@ -94,6 +108,9 @@ def filter_data(lf: pl.LazyFrame, filters: dict[str, Any]) -> pl.LazyFrame:
 
 
 def sort_data(lf: pl.LazyFrame, sort_cols: list[str]) -> pl.LazyFrame:
+    if not sort_cols:
+        return lf
+
     sort_exprs = []
 
     for sort_col in sort_cols:
@@ -148,12 +165,13 @@ def agg_data(
 
 def to_long(
     lf: pl.LazyFrame,
+    on_cols: list = METRIC_COLS,
     idx_cols: list = SEQ_COLS,
     var_col: str = X_COL,
     val_col: str = Y_COL,
 ) -> pl.LazyFrame:
     llf = lf.unpivot(
-        on=METRIC_COLS, index=idx_cols, variable_name=var_col, value_name=val_col
+        on=on_cols, index=idx_cols, variable_name=var_col, value_name=val_col
     )
 
     if var_col == X_COL:
@@ -165,12 +183,13 @@ def to_long(
 def process_data(
     lf: pl.LazyFrame,
     filters: dict[str, Any],
-    group_by: list[str],
-    baselines: dict[str, Any] | None = None,
-    one_frame: bool = False,
+    group_by: list[str] | None = None,
+    aggs: tuple[list[str], list[str]] | None = None,
     use_frame: bool = False,
     debug: bool = False,
-    is_long: bool = True,
+    # baselines: dict[str, Any] | None = None,
+    # one_frame: bool = False,
+    # is_long: bool = True,
 ) -> pl.LazyFrame:
     flf = filter_data(lf, filters)
 
@@ -180,76 +199,83 @@ def process_data(
         )
         print(f"Filtered data: {data_rows} rows, {data_seq} sequences.")
 
-    if one_frame:
-        return flf.sort(pl.col("frame_idx"))
+    # if one_frame:
+    #     return flf.sort(pl.col("frame_idx"))
 
-    if use_frame:
-        flf = to_long(flf)
-        aggs = {
-            "mean": {Y_COL: "mean"},
-            "median": {Y_COL: "median"},
-            "p10": {Y_COL: "p10"},
-            "p90": {Y_COL: "p90"},
-        }
-        flf = agg_data(flf, group_by + [X_COL], aggs)
-        return flf
+    if not use_frame:
+        seq_aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
+        flf = agg_data(flf, SEQ_COLS, seq_aggs)
+    
+        # flf = to_long(flf)
+        # aggs = {
+        #     "mean": {Y_COL: "mean"},
+        #     "median": {Y_COL: "median"},
+        #     "p10": {Y_COL: "p10"},
+        #     "p90": {Y_COL: "p90"},
+        # }
+        # flf = agg_data(flf, group_by + [X_COL], aggs)
+        # return flf
 
-    aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
-    flf = agg_data(flf, SEQ_COLS, aggs)
-    if debug:
-        data_rows, data_seq = (
-            flf.select([pl.len(), pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
-        )
-        print(f"Sequence data: {data_rows} rows, {data_seq} sequences.")
+        if debug:
+            data_rows, data_seq = (
+                flf.select([pl.len(), pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
+            )
+            print(f"Sequence data: {data_rows} rows, {data_seq} sequences.")
 
-    flf = agg_data(flf, group_by, aggs)
-
-    var_col = X_COL
-    val_col = Y_COL
-    if baselines:
-        on_keys = [
-            c
-            for c in flf.collect_schema().names()
-            if c not in baselines and c not in METRIC_COLS
-        ]
-
-        if on_keys:
-            select_cols = on_keys + [
-                pl.col(metric_col).alias(f"{metric_col}_baseline")
-                for metric_col in METRIC_COLS
-            ]
+    if group_by:
+        if aggs:
+            grp_aggs = {agg_type: {agg_col: (f"{agg_type}_{agg_col}" if agg_type != "mean" else None) for agg_col in aggs[1]} for agg_type in aggs[0] }
         else:
-            select_cols = [
-                pl.col(metric_col).alias(f"{metric_col}_baseline")
-                for metric_col in METRIC_COLS
-            ]
+            grp_aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
 
-        blf = filter_data(flf, baselines).select(select_cols)
+        flf = agg_data(flf, group_by, grp_aggs)
 
-        if on_keys:
-            flf = flf.join(blf, on=on_keys, how="inner", validate="m:1")
-        else:
-            flf = flf.join(blf, how="cross")
+    # var_col = X_COL
+    # val_col = Y_COL
+    # if baselines:
+    #     on_keys = [
+    #         c
+    #         for c in flf.collect_schema().names()
+    #         if c not in baselines and c not in METRIC_COLS
+    #     ]
 
-        flf = flf.with_columns(
-            [
-                (pl.col(metric_col) - pl.col(f"{metric_col}_baseline")).alias(
-                    metric_col
-                )
-                for metric_col in METRIC_COLS
-            ]
-        ).drop([f"{metric_col}_baseline" for metric_col in METRIC_COLS])
+    #     if on_keys:
+    #         select_cols = on_keys + [
+    #             pl.col(metric_col).alias(f"{metric_col}_baseline")
+    #             for metric_col in METRIC_COLS
+    #         ]
+    #     else:
+    #         select_cols = [
+    #             pl.col(metric_col).alias(f"{metric_col}_baseline")
+    #             for metric_col in METRIC_COLS
+    #         ]
 
-        val_col = DELTA_COL
+    #     blf = filter_data(flf, baselines).select(select_cols)
 
-    sort_cols = group_by
-    if is_long:
-        flf = to_long(flf, group_by, var_col, val_col)
-        sort_cols = group_by + [var_col]
-    else:
-        sort_cols = group_by
+    #     if on_keys:
+    #         flf = flf.join(blf, on=on_keys, how="inner", validate="m:1")
+    #     else:
+    #         flf = flf.join(blf, how="cross")
 
-    flf = sort_data(flf, sort_cols)
+    #     flf = flf.with_columns(
+    #         [
+    #             (pl.col(metric_col) - pl.col(f"{metric_col}_baseline")).alias(
+    #                 metric_col
+    #             )
+    #             for metric_col in METRIC_COLS
+    #         ]
+    #     ).drop([f"{metric_col}_baseline" for metric_col in METRIC_COLS])
+
+    #     val_col = DELTA_COL
+
+    # sort_cols = group_by
+    # if is_long:
+    #     flf = to_long(flf, group_by, var_col, val_col)
+    #     sort_cols = group_by + [var_col]
+    # else:
+    #     sort_cols = group_by
+
+    flf = sort_data(flf, group_by)
 
     return flf
 
@@ -277,35 +303,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--data-dir",
         type=Path,
         required=True,
-        help="Path to parquet data",
-    )
-
-    parser.add_argument(
-        "-s",
-        "--split",
-        action="store_true",
-        help="Split data by dataset level and lighting",
-    )
-
-    parser.add_argument(
-        "-c",
-        "--check",
-        action="store_true",
-        help="Checkout maximun, minimum values",
-    )
-
-    parser.add_argument(
-        "-e",
-        "--equal",
-        action="store_true",
-        help="check out if two csv files equal",
-    )
-
-    parser.add_argument(
-        "-f",
-        "--frame",
-        action="store_true",
-        help="show frame plot",
+        help="Path to blti data",
     )
 
     parser.add_argument(
@@ -393,38 +391,6 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
     plt.show()
 
 
-def diff_data(path: Path) -> int:
-    for p in path.glob("*.csv"):
-        df1 = pl.read_csv(p)
-
-        p2 = p.parent.parent / f"{p.parent.name}a" / p.name
-        df2 = pl.read_csv(p2)
-
-        if not df1.equals(df2):
-            diff1 = df1.join(df2, on=df1.columns, how="anti")
-            print(p.name)
-            print(diff1)
-
-    print("done")
-
-    return 0
-
-
-def split_parquet_file(path: Path) -> int:
-    # paths = [path / "part-00000.parquet", path / "part-00000.parquet", path / "part-00000.parquet", path / "part-00000.parquet"]
-    lf = load_data(path)
-    print(load_col_data(lf, ["dataset_name", "level", "lighting_enabled"]))
-
-    df = lf.collect()
-    groups = df.partition_by(["dataset_name", "level", "lighting_enabled"], as_dict=True)
-
-    for (ds, level, lit), group in groups.items():
-        print(len(group))
-        group.write_parquet(path.parent / "r1024" / f"{ds}-{str(level)}-{"l" if lit else "n"}.parquet")
-
-    return 0
-
-
 def merge_parquet_file(path: Path) -> int:
     lf = pl.scan_parquet(path / "Tree1-*.parquet")
     lf.collect().write_parquet("part-00007.parquet")
@@ -470,12 +436,6 @@ def main() -> int:
 
     args = build_argument_parser().parse_args()
 
-    if args.split:
-        return split_parquet_file(args.data_dir)
-
-    if args.equal:
-        return diff_data(args.data_dir)
-
     lf = load_data(args.data_dir)
 
     if lf is None:
@@ -485,9 +445,6 @@ def main() -> int:
     if args.debug:
         data_rows = lf.select(pl.len()).collect().item()
         print(f"Found {data_rows} rows data.")
-
-    if args.check:
-        return statistics_data(lf, args.data_dir)
 
     """
     'dataset_name': ['Aneurism1', 'Aneurism2', 'Head1', 'Head2', 'ML1', 'ML2', 'Sphere', 'Tree1', 'Tree2'], 
@@ -514,7 +471,6 @@ def main() -> int:
     }
 
     group_by = [
-        # "",
         "method",
         "virtual_sampling_method",
     ]
@@ -532,16 +488,6 @@ def main() -> int:
         use_frame=False,
         is_long=False,
     )
-    # step 1
-    # plf.sort(pl.col("blti_0"), descending=True).collect().write_csv("check1.csv")
-    # step 2: ML2,1,cr,true,1,crvs,1,rot,x
-    # if args.frame:
-    #     show_plot(plf, "frame_idx", "blti_0")
-    # else:
-    #     show_stem(plf, "method", "blti_0", "virtual_sampling_method")
-    #     print(plf.collect().to_dicts())
-    #step 3: frame best
-    # filter_data(lf, filter_by).sort(pl.col("blti_0")).collect().write_csv("check1.csv")
 
     return 0
 

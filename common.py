@@ -138,6 +138,13 @@ COL_META = {
 }
 
 
+def get_label(col: str, val: str | None = None) -> str:
+    if val is None:
+        return COL_META[col].label if col in COL_META else col
+
+    return COL_META[col].get_val_label(val) if col in COL_META else val
+
+
 def covert_value(value: Any, target_type: type):
     if isinstance(value, target_type):
         return value
