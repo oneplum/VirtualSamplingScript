@@ -19,8 +19,9 @@ from common import COL_META, ColMeta, FrameBasic, get_label
 from data import DELTA_COL, X_COL, Y_COL, SEQ_COLS, METRIC_COLS, load_col_data, load_data, sort_data, to_long, process_data
 
 ALL_VAR_COLS = [*SEQ_COLS, "frame_idx"]
-FILTER_COLS = SEQ_COLS
+FILTER_COLS = ["resolution", *SEQ_COLS]
 FILTER_DEFAULT = {
+    "resolution": ["512"],
     "dataset_name": ["Head1"],
     "level": [0],
     "lighting_enabled": [True],
@@ -61,13 +62,13 @@ COL_META[Y_COL] = ColMeta(label="BLTI")
 COL_META[DELTA_COL] = ColMeta(label="ΔBLTI to Linear")
 
 TRACE_MODE_FILL = "fill"
-TRACE_MODE_LINE = "line"
+TRACE_MODE_LINE = "lines"
 TRACE_MODE_LINE_MARKER = "lines+markers"
 TRACE_MODE_MARKER = "markers"
 TRACE_MODE_LOLLIPOP = "lollipop"
 TRACE_MODES = [
     TRACE_MODE_LINE,
-    # TRACE_MODE_LINE_MARKER,
+    TRACE_MODE_LINE_MARKER,
     TRACE_MODE_LOLLIPOP,
     TRACE_MODE_FILL
 ]
@@ -484,6 +485,7 @@ def get_data(
                 pl.col("metric").str.split("_").list.last().alias(X_COL),
             ).drop("metric")
         )
+        group_by.append(X_COL)
         dlf = sort_data(dlf, group_by)
 
     return dlf
@@ -591,8 +593,6 @@ def all_fig(
                             hovertemplate=(
                                 f"{group_label}"
                                 "<br>"
-                                "%{x}"
-                                "<br>"
                                 "BLTI: %{y:.4f}"
                                 "<extra></extra>"
                             ),
@@ -652,7 +652,7 @@ def all_fig(
                         go.Scatter(
                             x=data[x_col],
                             y=data[y_col],
-                            mode="lines",
+                            mode=trace_mode,
                             name=group_label,
                             legendgroup=group_label,
                             line=dict(color=color),
@@ -816,7 +816,10 @@ def main() -> int:
 
     print("Starting...")
 
-    lf = load_data(args.data_dir)
+    lf512 = load_data(args.data_dir / "r512").with_columns(pl.lit("512").alias("resolution"))
+    lf1024 = load_data(args.data_dir / "r1024").with_columns(pl.lit("1024").alias("resolution"))
+
+    lf = pl.concat([lf512, lf1024])
 
     if lf is None:
         raise FileNotFoundError(f"No parquet or CSV files found in {args.data_dir}")
