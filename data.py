@@ -165,19 +165,17 @@ def agg_data(
 
 def to_long(
     lf: pl.LazyFrame,
-    on_cols: list = METRIC_COLS,
     idx_cols: list = SEQ_COLS,
     var_col: str = X_COL,
     val_col: str = Y_COL,
+    on_cols: list | None = None,
 ) -> pl.LazyFrame:
-    llf = lf.unpivot(
+    return lf.unpivot(
         on=on_cols, index=idx_cols, variable_name=var_col, value_name=val_col
     )
 
-    if var_col == X_COL:
-        llf = llf.with_columns(pl.col(X_COL).str.strip_prefix("blti_").cast(pl.UInt8))
-
-    return llf
+    # if var_col == X_COL:
+    #     llf = llf.with_columns(pl.col(X_COL).str.strip_prefix("blti_").cast(pl.UInt8))
 
 
 def process_data(
@@ -185,11 +183,9 @@ def process_data(
     filters: dict[str, Any],
     group_by: list[str] | None = None,
     aggs: tuple[list[str], list[str]] | None = None,
+    stats_col: str | None = None,
     use_frame: bool = False,
     debug: bool = False,
-    # baselines: dict[str, Any] | None = None,
-    # one_frame: bool = False,
-    # is_long: bool = True,
 ) -> pl.LazyFrame:
     flf = filter_data(lf, filters)
 
@@ -199,22 +195,9 @@ def process_data(
         )
         print(f"Filtered data: {data_rows} rows, {data_seq} sequences.")
 
-    # if one_frame:
-    #     return flf.sort(pl.col("frame_idx"))
-
     if not use_frame:
         seq_aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
         flf = agg_data(flf, SEQ_COLS, seq_aggs)
-    
-        # flf = to_long(flf)
-        # aggs = {
-        #     "mean": {Y_COL: "mean"},
-        #     "median": {Y_COL: "median"},
-        #     "p10": {Y_COL: "p10"},
-        #     "p90": {Y_COL: "p90"},
-        # }
-        # flf = agg_data(flf, group_by + [X_COL], aggs)
-        # return flf
 
         if debug:
             data_rows, data_seq = (
@@ -224,56 +207,26 @@ def process_data(
 
     if group_by:
         if aggs:
-            grp_aggs = {agg_type: {agg_col: (f"{agg_type}_{agg_col}" if len(aggs[0]) == 1 else None) for agg_col in aggs[1]} for agg_type in aggs[0] }
+            if stats_col:
+                flf = (
+                    pl.concat(
+                        [
+                            flf.group_by(group_by).agg(
+                                _agg_expr(agg_type, {agg_col: None for agg_col in aggs[1]})
+                            ).with_columns(
+                                pl.lit(agg_type).alias(stats_col)
+                            )
+                            for agg_type in aggs[0]
+                        ]
+                        
+                    )
+                )
+                group_by.append(stats_col)
+            else:
+                grp_aggs = {agg_type: {agg_col: f"{agg_type}_{agg_col}" for agg_col in aggs[1]} for agg_type in aggs[0] }
+                flf = agg_data(flf, group_by, grp_aggs)
         else:
-            grp_aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
-
-        flf = agg_data(flf, group_by, grp_aggs)
-
-    # var_col = X_COL
-    # val_col = Y_COL
-    # if baselines:
-    #     on_keys = [
-    #         c
-    #         for c in flf.collect_schema().names()
-    #         if c not in baselines and c not in METRIC_COLS
-    #     ]
-
-    #     if on_keys:
-    #         select_cols = on_keys + [
-    #             pl.col(metric_col).alias(f"{metric_col}_baseline")
-    #             for metric_col in METRIC_COLS
-    #         ]
-    #     else:
-    #         select_cols = [
-    #             pl.col(metric_col).alias(f"{metric_col}_baseline")
-    #             for metric_col in METRIC_COLS
-    #         ]
-
-    #     blf = filter_data(flf, baselines).select(select_cols)
-
-    #     if on_keys:
-    #         flf = flf.join(blf, on=on_keys, how="inner", validate="m:1")
-    #     else:
-    #         flf = flf.join(blf, how="cross")
-
-    #     flf = flf.with_columns(
-    #         [
-    #             (pl.col(metric_col) - pl.col(f"{metric_col}_baseline")).alias(
-    #                 metric_col
-    #             )
-    #             for metric_col in METRIC_COLS
-    #         ]
-    #     ).drop([f"{metric_col}_baseline" for metric_col in METRIC_COLS])
-
-    #     val_col = DELTA_COL
-
-    # sort_cols = group_by
-    # if is_long:
-    #     flf = to_long(flf, group_by, var_col, val_col)
-    #     sort_cols = group_by + [var_col]
-    # else:
-    #     sort_cols = group_by
+            flf = flf.select(group_by)
 
     flf = sort_data(flf, group_by)
 

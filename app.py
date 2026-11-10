@@ -16,19 +16,20 @@ from plotly.subplots import make_subplots
 
 from blti import BLTI_K, GAUSSIAN_SCALES
 from common import COL_META, ColMeta, FrameBasic, get_label
-from data import DELTA_COL, X_COL, Y_COL, SEQ_COLS, METRIC_COLS, load_col_data, load_data, to_long, process_data
+from data import DELTA_COL, X_COL, Y_COL, SEQ_COLS, METRIC_COLS, load_col_data, load_data, sort_data, to_long, process_data
 
 ALL_VAR_COLS = [*SEQ_COLS, "frame_idx"]
 FILTER_COLS = SEQ_COLS
 FILTER_DEFAULT = {
-    # "dataset_name": ["Head1"],
-    # "level": [0],
-    # "lighting_enabled": [True],
-    # "true_samples": [15],
+    "dataset_name": ["Head1"],
+    "level": [0],
+    "lighting_enabled": [True],
+    "method": ["lin"],
+    "true_samples": [15],
     "virtual_sampling_method": ["none"],
     "virtual_samples": [0],
-    # "trans_type": ["rot"],
-    # "trans_axis": ["y"],
+    "trans_type": ["rot"],
+    "trans_axis": ["y"],
 }
 
 FACET_COLS = ALL_VAR_COLS
@@ -42,6 +43,7 @@ GROUP_DEFAULT = [
 
 X_COLS = ALL_VAR_COLS
 Y_COLS = METRIC_COLS
+STATS_COL = "stats"
 
 # BASELINES = {
 #     "method": "lin",
@@ -65,15 +67,16 @@ TRACE_MODE_MARKER = "markers"
 TRACE_MODE_LOLLIPOP = "lollipop"
 TRACE_MODES = [
     TRACE_MODE_LINE,
-    TRACE_MODE_LINE_MARKER,
-    TRACE_MODE_LOLLIPOP
+    # TRACE_MODE_LINE_MARKER,
+    TRACE_MODE_LOLLIPOP,
+    TRACE_MODE_FILL
 ]
 
 STATISTIC_MEAN = "mean"
 STATISTIC_MEDIAN = "median"
 STATISTIC_MAX = "max"
 STATISTIC_PERCENTILE_10 = "p10"
-STATISTIC_PERCENTILE_90 = "p10"
+STATISTIC_PERCENTILE_90 = "p90"
 STATISTIC_MODES = [STATISTIC_MEAN, STATISTIC_MEDIAN, STATISTIC_PERCENTILE_10, STATISTIC_PERCENTILE_90]
 
 
@@ -441,60 +444,65 @@ def get_data(
     x_cols: Any | None = None,
     y_cols: Any | None = None,
     stats: Any | None = None,
-    # baselines: Any | None = None,
     debug: bool = False,
-    # is_long: bool = True,
-) -> pl.DataFrame:
+    is_long: bool = False,
+) -> pl.LazyFrame:
     filter_by = {
         filter_ipt["id"]["column"]: filter_ipt["value"]
         for filter_ipt in filters
         if filter_ipt["value"]
     }
 
-    # use_frame = stats == STATISTIC_PERCENTILE
-
-    # if stats != STATISTIC_DELTA:
-    #     baselines = None
-
     cols = [*facets, *groups]
     if x_cols:
         cols.extend(x_cols)
+    group_by = list(dict.fromkeys(
+        col for col in cols if col in ALL_VAR_COLS
+    ))
 
-    group_by = list(dict.fromkeys(cols))
     if not y_cols:
         y_cols = METRIC_COLS
     if not stats:
         stats = [STATISTIC_MEAN]
-    aggs = (stats, y_cols)
+    aggs = (stats, y_cols)        
 
     dlf = process_data(
         lf,
         filter_by,
         group_by,
         aggs,
-        # use_frame=True,
+        stats_col=STATS_COL,
+        use_frame=(x_cols and "frame_idx" in x_cols),
         debug=debug,
     )
-    df = dlf.collect()
+    group_by.append(STATS_COL)
+
+    if is_long:
+        dlf = (
+            to_long(dlf, group_by, "metric")
+            .with_columns(
+                pl.col("metric").str.split("_").list.last().alias(X_COL),
+            ).drop("metric")
+        )
+        dlf = sort_data(dlf, group_by)
+
     return dlf
 
 
 def all_fig(
     df: pl.DataFrame,
     x_col: str,
-    y_col: str,
+    y_cols: list[str],
+    stats: list[str],
     facet_cols: list[str] | None = None,
     group_cols: list[str] | None = None,
     group_title: str = "",
-    trace_mode: str = TRACE_MODE_LINE,
-    fill_cols: tuple[str, str] | None = None
+    trace_mode: str = TRACE_MODE_LINE
 ) -> go.Figure:
     if df.is_empty():
         return go.Figure().update_layout(title="No data")
 
-    sel_cols = [x_col, y_col, *facet_cols, *group_cols]
-    if fill_cols:
-        sel_cols.extend(fill_cols)
+    sel_cols = [x_col, *y_cols, STATS_COL, *facet_cols, *group_cols]
 
     df = df.select(sel_cols)
 
@@ -545,90 +553,118 @@ def all_fig(
 
             if trace_mode == TRACE_MODE_LOLLIPOP:
                 is_show_hline = True
-                diff = data[y_col].to_numpy()
                 x_data = (
                     np.array([x_map[v] for v in data[x_col]], dtype=float)
                     + (group_idx - (n_groups - 1) / 2) * width
                 )
+                for y_col in y_cols:
+                    diff = data[y_col].to_numpy()
+                    stem_x = []
+                    stem_y = []
+                    for x, y in zip(x_data, diff):
+                        stem_x.extend([x, x, None])
+                        stem_y.extend([0, y, None])
 
-                stem_x = []
-                stem_y = []
-                for x, y in zip(x_data, diff):
-                    stem_x.extend([x, x, None])
-                    stem_y.extend([0, y, None])
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=stem_x,
-                        y=stem_y,
-                        mode="lines",
-                        line=dict(width=2, color=color),
-                        showlegend=False,
-                        hoverinfo="skip",
-                        legendgroup=group_label,
-                    ),
-                    row=row,
-                    col=col,
-                )
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=x_data,
-                        y=diff,
-                        mode="markers",
-                        name=group_label,
-                        marker=dict(size=9, color=color),
-                        legendgroup=group_label,
-                        showlegend=(facet_idx == 0),
-                        hovertemplate=(
-                            f"{group_label}"
-                            "<br>"
-                            "%{x}"
-                            "<br>"
-                            "BLTI: %{y:.4f}"
-                            "<extra></extra>"
+                    fig.add_trace(
+                        go.Scatter(
+                            x=stem_x,
+                            y=stem_y,
+                            mode="lines",
+                            line=dict(width=2, color=color),
+                            showlegend=False,
+                            hoverinfo="skip",
+                            legendgroup=group_label,
                         ),
-                    ),
-                    row=row,
-                    col=col,
-                )
+                        row=row,
+                        col=col,
+                    )
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x_data,
+                            y=diff,
+                            mode="markers",
+                            name=group_label,
+                            marker=dict(size=9, color=color),
+                            legendgroup=group_label,
+                            showlegend=(facet_idx == 0),
+                            hovertemplate=(
+                                f"{group_label}"
+                                "<br>"
+                                "%{x}"
+                                "<br>"
+                                "BLTI: %{y:.4f}"
+                                "<extra></extra>"
+                            ),
+                        ),
+                        row=row,
+                        col=col,
+                    )
             elif trace_mode == TRACE_MODE_FILL:
-                x = data[x_col].to_list()
-                pl = data[fill_cols[0]].to_list()
-                ph = data[fill_cols[1]].to_list()
+                data = data.sort(x_col)
+                print(data)
 
-                fig.add_trace(
-                    go.Scatter(
-                        x=x + x[::-1],
-                        y=ph + pl[::-1],
-                        fill="toself",
-                        fillcolor="rgba(100, 150, 255, 0.2)",
-                        line={"color": "rgba(0,0,0,0)"},
-                        name=group_label,
-                        legendgroup=group_label,
-                        hoverinfo="skip",
-                        showlegend=(facet_idx == 0),
-                    ),
-                    row=row,
-                    col=col,
-                )
-            else:
-                fig.add_trace(
-                    go.Scatter(
-                        x=data[x_col],
-                        y=data[y_col],
-                        mode="lines",
-                        name=group_label,
-                        legendgroup=group_label,
-                        line=dict(color=color),
-                        showlegend=(facet_idx == 0),
-                        hovertemplate=(
-                            f"{group_label}<br>BLTI: %{{y:.4f}}<extra></extra>"
+                for y_col in y_cols:
+                    c_data = data.filter(pl.col(STATS_COL) == stats[0]).sort(x_col).select([x_col, y_col])
+                    x = c_data[x_col].to_list()
+                    top = c_data[y_col].to_list()
+                    bottom = data.filter(pl.col(STATS_COL) == stats[1]).sort(x_col)[y_col].to_list()
+                    print(top)
+                    print(bottom)
+
+
+                    fig.add_trace(
+                        go.Scatter(
+                            x=x + x[::-1],
+                            y=bottom + top[::-1],
+                            fill="toself",
+                            fillcolor="rgba(100, 150, 255, 0.2)",
+                            line={"color": "rgba(0,0,0,0)"},
+                            name=group_label,
+                            legendgroup=group_label,
+                            hoverinfo="skip",
+                            showlegend=(facet_idx == 0),
                         ),
-                    ),
-                    row=row,
-                    col=col,
-                )
+                        row=row,
+                        col=col,
+                    )
+                    for stats_idx, stats_val in enumerate(stats[2:]):
+                        color = SETTING_COLORS[(group_idx + stats_idx) % len(SETTING_COLORS)]
+                        fig.add_trace(
+                            go.Scatter(
+                                x=x,
+                                y=data.filter(pl.col(STATS_COL) == stats_val).sort(x_col)[y_col].to_list(),
+                                mode="lines+markers",
+                                name=group_label,
+                                legendgroup=group_label,
+                                line=dict(color=color),
+                                showlegend=(facet_idx == 0),
+                                hovertemplate=(
+                                    f"{group_label}<br>BLTI: %{{y:.4f}}<extra></extra>"
+                                ),
+                            ),
+                            row=row,
+                            col=col,
+                        )
+            else:
+                for y_col in y_cols:
+                    fig.add_trace(
+                        go.Scatter(
+                            x=data[x_col],
+                            y=data[y_col],
+                            mode="lines",
+                            name=group_label,
+                            legendgroup=group_label,
+                            line=dict(color=color),
+                            # line_dash=STATS_COL,
+                            showlegend=(facet_idx == 0),
+                            hovertemplate=(
+                                f"{group_label}<br>BLTI: %{{y:.4f}}<extra></extra>"
+                            ),
+                        ),
+                        row=row,
+                        col=col,
+                    )
 
     fig.update_xaxes(
         matches="x",
@@ -680,49 +716,38 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         Input("ycol-dropdown", "value"),
         Input("smode-dropdown", "value"),
         Input("tmode-dropdown", "value"),
-        # Input("stats-dropdown", "value"),
     )
     def update_main_chart(filter_vals, sel_facets, sel_groups, sel_cols, sel_ycols, sel_stats, sel_trace):
         filters = ctx.inputs_list[0]
+        
+        if not sel_cols:
+            sel_cols = [X_COL]
+
+        x_exist = any(X_COL in cols for cols in (sel_cols, sel_facets, sel_groups))
 
         dlf = get_data(
-            lf, filters, sel_facets, sel_groups, sel_cols, sel_ycols, sel_stats, debug=debug
+            lf, filters, sel_facets, sel_groups, sel_cols, sel_ycols, sel_stats, debug=debug, is_long=x_exist
         )
 
-        print(dlf.collect_schema())
-
-        if sel_cols:
-            sel_col = "-".join(sel_cols)
-            y_col = sel_ycols[0] if sel_ycols else "blti_0"
-            if len(sel_cols) > 1:
-                dlf = dlf.with_columns(pl.concat_str([pl.col(s_col) for s_col in sel_cols], separator="-").alias(sel_col)).drop(sel_cols)
+        if len(sel_cols) > 1:
+            x_col = "-".join(sel_cols)
+            dlf = dlf.with_columns(pl.concat_str([pl.col(s_col) for s_col in sel_cols], separator="-").alias(x_col)).drop(sel_cols)
         else:
-            sel_col = X_COL
-            y_col = Y_COL
-            if not sel_ycols:
-                sel_ycols = METRIC_COLS
-            dlf = to_long(dlf, on_cols=sel_ycols, idx_cols=[*sel_facets, *sel_groups], var_col=sel_col, val_col=y_col)
+            x_col = sel_cols[0]
+
+        if x_exist or (not sel_ycols):
+            sel_ycols = [Y_COL]
+
+        if not sel_stats:
+            sel_stats = [STATISTIC_MEAN]
 
         facet_cols = sel_facets
         group_cols = sel_groups
-
-        
-        # if sel_stats == STATISTIC_DELTA:
-        #     traces = [(TRACE_MODE_LOLLIPOP, DELTA_COL, None, None)]
-        # elif sel_stats == STATISTIC_PERCENTILE:
-        #     facet_cols = facet_cols + group_cols
-        #     group_cols = None
-        #     traces = [
-        #         (TRACE_MODE_FILL, "p10", "p90", "10-90% envelope"),
-        #         (TRACE_MODE_LINE_MARKER, "median", None, None),
-        #         (TRACE_MODE_LINE_MARKER, "mean", None, None),
-        #     ]
-        # else:
-        #     traces = [(TRACE_MODE_LINE_MARKER, Y_COL, None, None)]
+        group_title=" ".join([get_label(col) for col in sel_groups]) if sel_groups else ""
 
         df = dlf.collect()
 
-        return all_fig(df, sel_col, y_col, facet_cols, group_cols, group_title=" ".join([get_label(col) for col in sel_groups]) if sel_groups else "", trace_mode=sel_trace)
+        return all_fig(df, x_col, sel_ycols, sel_stats, facet_cols, group_cols, group_title=group_title, trace_mode=sel_trace)
 
     @app.callback(
         Output("download-csv", "data"),
@@ -734,26 +759,30 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         State("facet-dropdown", "value"),
         State("group-dropdown", "value"),
         State("xcol-dropdown", "value"),
-        Input("ycol-dropdown", "value"),
-        # State("stats-dropdown", "value"),
+        State("ycol-dropdown", "value"),
+        State("smode-dropdown", "value"),
         prevent_initial_call=True,
     )
     def download_data(
-        n_clicks, filter_vals, sel_facets, sel_groups, sel_cols, sel_ycols
+        n_clicks, filter_vals, sel_facets, sel_groups, sel_cols, sel_ycols, sel_stats
     ):
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
 
         filters = ctx.states_list[0]
-        df = get_data(
+        
+        lf = get_data(
             lf,
             filters,
             sel_facets,
             sel_groups,
             sel_cols,
             sel_ycols,
+            sel_stats,
             debug=debug
-        ).collect()
+        )
+        df = lf.collect()
+
         return {
             "content": df.write_csv(),
             "filename": "data.csv",
