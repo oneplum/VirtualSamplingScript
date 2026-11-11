@@ -467,8 +467,6 @@ def get_data(
     if not stats:
         stats = [STATISTIC_MEAN]
     aggs = (stats, y_cols)
-    print(aggs)
-    print(group_by)  
 
     dlf = process_data(
         lf,
@@ -480,8 +478,6 @@ def get_data(
         debug=debug,
     )
     group_by.append(STATS_COL)
-    print(dlf.collect_schema())
-    print(dlf.filter(pl.col("frame_idx") == 32).collect())
 
     if is_long:
         dlf = (
@@ -607,15 +603,12 @@ def all_fig(
                     )
             elif trace_mode == TRACE_MODE_FILL:
                 data = data.sort(x_col)
-                print(data)
 
                 for y_col in y_cols:
                     c_data = data.filter(pl.col(STATS_COL) == stats[0]).sort(x_col).select([x_col, y_col])
                     x = c_data[x_col].to_list()
                     top = c_data[y_col].to_list()
                     bottom = data.filter(pl.col(STATS_COL) == stats[1]).sort(x_col)[y_col].to_list()
-                    print(top)
-                    print(bottom)
 
 
                     fig.add_trace(
@@ -685,6 +678,10 @@ def all_fig(
         title_text=get_label(x_col),
     )
 
+    y_min = df.select(pl.min_horizontal(*y_cols).min()).item()
+    y_max = df.select(pl.max_horizontal(*y_cols).max()).item()
+    padding = max((y_max - y_min) * 0.1, abs(y_max) * 0.01, 0.000001)
+
     fig.update_yaxes(
         matches="y",
         showticklabels=True,
@@ -703,6 +700,10 @@ def all_fig(
         hovermode="x",
         template="plotly_white",
         legend_title=legent_title,
+        yaxis=dict(
+            range=[y_min - padding, y_max + padding],
+            tickformat=".5f"
+        )
     )
 
     return fig
@@ -726,6 +727,7 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         filters = ctx.inputs_list[0]
         
         if not sel_cols:
+            print("a")
             sel_cols = [X_COL]
 
         x_exist = any(X_COL in cols for cols in (sel_cols, sel_facets, sel_groups))
