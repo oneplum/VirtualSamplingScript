@@ -18,19 +18,21 @@ from blti import BLTI_K, GAUSSIAN_SCALES
 from common import COL_META, ColMeta, FrameBasic, get_label
 from data import DELTA_COL, X_COL, Y_COL, SEQ_COLS, METRIC_COLS, load_col_data, load_data, sort_data, to_long, process_data
 
+
+SEQ_COLS.append("resolution")
 ALL_VAR_COLS = [*SEQ_COLS, "frame_idx"]
-FILTER_COLS = ["resolution", *SEQ_COLS]
+FILTER_COLS = SEQ_COLS
 FILTER_DEFAULT = {
-    "resolution": ["512"],
-    "dataset_name": ["Head1"],
-    "level": [0],
-    "lighting_enabled": [True],
-    "method": ["lin"],
-    "true_samples": [15],
-    "virtual_sampling_method": ["none"],
-    "virtual_samples": [0],
-    "trans_type": ["rot"],
-    "trans_axis": ["y"],
+    # "resolution": ["512"],
+    # "dataset_name": ["Head1"],
+    # "level": [0],
+    # "lighting_enabled": [False],
+    # "method": ["lin"],
+    # "true_samples": [15],
+    # "virtual_sampling_method": ["none"],
+    # "virtual_samples": [0],
+    # "trans_type": ["rot"],
+    # "trans_axis": ["y"],
 }
 
 FACET_COLS = [*ALL_VAR_COLS, X_COL]
@@ -38,12 +40,14 @@ FACET_DEFAULT = ["lighting_enabled"]
 
 GROUP_COLS = [*ALL_VAR_COLS, X_COL]
 GROUP_DEFAULT = [
-    "method",
+    # "method",
     "virtual_sampling_method",
 ]
 
 X_COLS = ALL_VAR_COLS
+X_COL_DEFAULT = ["method"]
 Y_COLS = METRIC_COLS
+Y_COL_DEFAULT = ["blti_0"]
 STATS_COL = "stats"
 
 # BASELINES = {
@@ -67,9 +71,9 @@ TRACE_MODE_LINE_MARKER = "lines+markers"
 TRACE_MODE_MARKER = "markers"
 TRACE_MODE_LOLLIPOP = "lollipop"
 TRACE_MODES = [
-    TRACE_MODE_LINE,
-    TRACE_MODE_LINE_MARKER,
     TRACE_MODE_LOLLIPOP,
+    # TRACE_MODE_LINE,
+    TRACE_MODE_LINE_MARKER,
     TRACE_MODE_FILL
 ]
 
@@ -266,6 +270,7 @@ def make_layout(
                             }
                             for x_col in x_cols
                         ],
+                        value=X_COL_DEFAULT,
                         clearable=True,
                         debounce=True,
                         closeOnSelect=False,
@@ -297,6 +302,7 @@ def make_layout(
                             }
                             for y_col in y_cols
                         ],
+                        value=Y_COL_DEFAULT,
                         clearable=True,
                         debounce=True,
                         closeOnSelect=False,
@@ -505,7 +511,7 @@ def all_fig(
     if df.is_empty():
         return go.Figure().update_layout(title="No data")
 
-    sel_cols = [x_col, *y_cols, STATS_COL, *facet_cols, *group_cols]
+    sel_cols = list(dict.fromkeys([x_col, *y_cols, STATS_COL, *facet_cols, *group_cols]))
 
     df = df.select(sel_cols)
 
@@ -518,11 +524,13 @@ def all_fig(
     ncols = min(2, n_facets)
     nrows = math.ceil(n_facets / ncols)
 
+    is_shared_y = True
+
     fig = make_subplots(
         rows=nrows,
         cols=ncols,
         shared_xaxes=True,
-        shared_yaxes=True,
+        shared_yaxes=is_shared_y,
         subplot_titles=[
             _label(facet_cols, facet_val) for facet_val, _ in facets.items()
         ],
@@ -664,11 +672,31 @@ def all_fig(
                         col=col,
                     )
 
+        if not is_shared_y:
+            y_min = rows.select(pl.min_horizontal(*y_cols).min()).item()
+            y_max = rows.select(pl.max_horizontal(*y_cols).max()).item()
+            padding = max((y_max - y_min) * 0.1, abs(y_max) * 0.01, 0.000001)
+            fig.update_yaxes(range=[y_min - padding, y_max + padding], tickformat=".5f", row=row, col=col)
+
+        if is_show_hline:
+            if "method" in sel_cols and "virtual_sampling_method" in sel_cols:
+                y_b = rows.filter((pl.col("method") == "lin") & (pl.col("virtual_sampling_method") == "none")).select(pl.col(y_cols[0]).min()).item()
+            else:
+                y_b = rows.select(pl.min_horizontal(*y_cols).min()).item()
+            
+            fig.add_hline(
+                y=y_b,
+                line_width=2,
+                line_color=SETTING_COLORS[0],
+                row=row,
+                col=col,
+            )
+
     fig.update_xaxes(
         matches="x",
         tickmode="array",
         tickvals=list(x_map.values()),
-        ticktext=[get_label(x_col, val) for val in x_map.keys()],
+        ticktext=[get_label(x_col, val) for val in x_map],
         showticklabels=True,
         ticks="outside",
         ticklen=5,
@@ -678,12 +706,8 @@ def all_fig(
         title_text=get_label(x_col),
     )
 
-    y_min = df.select(pl.min_horizontal(*y_cols).min()).item()
-    y_max = df.select(pl.max_horizontal(*y_cols).max()).item()
-    padding = max((y_max - y_min) * 0.1, abs(y_max) * 0.01, 0.000001)
-
     fig.update_yaxes(
-        matches="y",
+        matches="y" if is_shared_y else None,
         showticklabels=True,
         ticks="outside",
         ticklen=5,
@@ -695,15 +719,17 @@ def all_fig(
 
     legent_title = group_title
 
+    if is_shared_y:
+        y_min = df.select(pl.min_horizontal(*y_cols).min()).item()
+        y_max = df.select(pl.max_horizontal(*y_cols).max()).item()
+        padding = max((y_max - y_min) * 0.1, abs(y_max) * 0.01, 0.000001)
+        fig.update_yaxes(range=[y_min - padding, y_max + padding], tickformat=".5f")
+
     fig.update_layout(
         height=500 * nrows,
         hovermode="x",
         template="plotly_white",
         legend_title=legent_title,
-        yaxis=dict(
-            range=[y_min - padding, y_max + padding],
-            tickformat=".5f"
-        )
     )
 
     return fig
@@ -727,7 +753,6 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         filters = ctx.inputs_list[0]
         
         if not sel_cols:
-            print("a")
             sel_cols = [X_COL]
 
         x_exist = any(X_COL in cols for cols in (sel_cols, sel_facets, sel_groups))
