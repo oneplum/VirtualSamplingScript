@@ -33,10 +33,10 @@ FILTER_DEFAULT = {
     "trans_axis": ["y"],
 }
 
-FACET_COLS = ALL_VAR_COLS
+FACET_COLS = [*ALL_VAR_COLS, X_COL]
 FACET_DEFAULT = ["lighting_enabled"]
 
-GROUP_COLS = ALL_VAR_COLS
+GROUP_COLS = [*ALL_VAR_COLS, X_COL]
 GROUP_DEFAULT = [
     "method",
     "virtual_sampling_method",
@@ -76,9 +76,10 @@ TRACE_MODES = [
 STATISTIC_MEAN = "mean"
 STATISTIC_MEDIAN = "median"
 STATISTIC_MAX = "max"
+STATISTIC_MIN = "min"
 STATISTIC_PERCENTILE_10 = "p10"
 STATISTIC_PERCENTILE_90 = "p90"
-STATISTIC_MODES = [STATISTIC_MEAN, STATISTIC_MEDIAN, STATISTIC_PERCENTILE_10, STATISTIC_PERCENTILE_90]
+STATISTIC_MODES = [STATISTIC_MEAN, STATISTIC_MEDIAN, STATISTIC_MAX, STATISTIC_MIN, STATISTIC_PERCENTILE_10, STATISTIC_PERCENTILE_90]
 
 
 SETTING_COLORS = px.colors.qualitative.Dark24 + px.colors.qualitative.Light24
@@ -465,7 +466,9 @@ def get_data(
         y_cols = METRIC_COLS
     if not stats:
         stats = [STATISTIC_MEAN]
-    aggs = (stats, y_cols)        
+    aggs = (stats, y_cols)
+    print(aggs)
+    print(group_by)  
 
     dlf = process_data(
         lf,
@@ -477,6 +480,8 @@ def get_data(
         debug=debug,
     )
     group_by.append(STATS_COL)
+    print(dlf.collect_schema())
+    print(dlf.filter(pl.col("frame_idx") == 32).collect())
 
     if is_long:
         dlf = (
