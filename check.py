@@ -10,9 +10,10 @@ import matplotlib.pyplot as plt
 import blti as b
 import data as d
 
-def show_img(data: list[tuple[np.ndarray, str, str | None, tuple | None]], title: str, path: Path) -> int:
+
+def show_img(data: list[tuple[np.ndarray, str, str | None, tuple | None]], title: str, path: Path, max_col: int = 3) -> int:
     c = len(data)
-    col = min(3, c)
+    col = min(max_col, c)
     row = math.ceil(c / col)
     fig, axes = plt.subplots(row, col, figsize=(10,10), squeeze=False)
 
@@ -108,6 +109,88 @@ def compute_sequence(path: Path, output_dir: Path, t: int = 1, k: int = 0) -> tu
     return path.name, frame_obj, ""
 
 
+def analyse_blti(paths: list[Path], t: int = 1, k: int = 0) -> dict:
+    if len(paths) < 3:
+        return {}
+
+    prev_image, prev_bands = b._load_and_blur(paths[t-1])
+    curr_image, curr_bands = b._load_and_blur(paths[t])
+    next_image, next_bands = b._load_and_blur(paths[t+1])
+
+    weight = b._edge_weights(curr_image)
+
+    band_prev = prev_bands[k]
+    band_curr = curr_bands[k]
+    band_next = next_bands[k]
+
+    R_t = band_curr - 0.5 * (band_prev + band_next)
+    S_t = 0.5 * (band_next - band_prev)
+
+    blti_t_k = b._weighted_rms(weight, R_t) / max(
+        b._weighted_rms(weight, S_t), b.BLTI_EPS
+    )
+
+    return {
+        "imgs": [b.load_rgb_image(paths[t-1]) / 255.0, b.load_rgb_image(paths[t]) / 255.0, b.load_rgb_image(paths[t+1]) / 255.0],
+        "luminaces": [prev_image, curr_image, next_image],
+        "weight": weight,
+        "bands": [band_prev, band_curr, band_next],
+        "rt": weight * R_t ** 2,
+        "st": weight * S_t ** 2,
+        "blti": blti_t_k
+    }
+
+
+def analyse_sequences(paths: list[Path], output_dir: Path, ts: list[int], k: int = 0) -> int:
+    lumi_imgs = []
+    weights = []
+    bands = []
+    hots = []
+    bltis = []
+    for path_idx, path in enumerate(paths):
+        frame_paths = sorted(
+            path.glob(b.PATTERN), key=lambda x: int(x.stem.rsplit("-", 1)[-1])
+        )
+        if len(frame_paths) != 100:
+            print(f"{path.name} expected 100 images, found {len(frame_paths)}.")
+            continue
+
+        t = ts[path_idx] if ts and ts[path_idx] else 1
+
+        res = analyse_blti(frame_paths, t, k)
+
+        lumi_imgs.append((res["luminaces"][0], f"Previous - {t}", "gray", None))
+        lumi_imgs.append((res["luminaces"][1], f"Current - {t}", "gray", None))
+        lumi_imgs.append((res["luminaces"][2], f"Next - {t}", "gray", None))
+
+        weights.append((res["weight"], f"Edge Weight - {t}", "gray", None))
+
+        bands.append((res["bands"][0], f"Previous - {t}", "gray", (np.min(res["bands"][0]), np.max(res["bands"][0]))))
+        bands.append((res["bands"][1], f"Current - {t}", "gray", (np.min(res["bands"][1]), np.max(res["bands"][1]))))
+        bands.append((res["bands"][2], f"Next - {t}", "gray", (np.min(res["bands"][2]), np.max(res["bands"][2]))))
+
+        hots.append((res["rt"], f"weight * R_t ** 2 - {t}", "hot", None))
+        hots.append((res["st"], f"weight * S_t ** 2 - {t}", "hot", None))
+
+        bltis.append(f"{res["blti"]}")
+
+    if lumi_imgs:
+        show_img(lumi_imgs, f"{path.name}_luminance", output_dir)
+
+    if weights:
+        show_img(weights, f"{path.name}_weight", output_dir, max_col=2)
+
+    if bands:
+        show_img(bands, f"{path.name}_band_{k}", output_dir)
+
+    if hots:
+        show_img(hots, f"{path.name}_hot_{k}", output_dir, max_col=2)
+
+    print(" VS ".join(bltis))
+
+    return 0
+
+
 def _seq_col() -> d.pl.Expr:
     return d.pl.concat_str(
         [
@@ -183,7 +266,7 @@ def analysis_data(lf: d.pl.LazyFrame, path: Path, dir: Path | None = None, k: in
             )
         )
 
-        flf.select(["seq", "frame_idx", metric_col]).collect().write_csv(m_path / f"{metric_col}_p999.csv")
+        flf.collect().write_csv(m_path / f"{metric_col}_p999.csv")
 
         if dir is not None:
             for item in flf.collect().iter_rows(named=True):
@@ -275,7 +358,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--action",
         type=int,
         default=0,
-        help="0: check sequences whether valid, 1: blti statistic data 2: analyse unexcepted data 3: split data",
+        help="0: check sequences whether valid, 1: blti statistic data 2: analyse unexcepted data 3: split data 4: campare two blti",
     )
 
     parser.add_argument(
@@ -290,6 +373,24 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="Blti score",
     )
 
+    parser.add_argument(
+        "--vs-dir",
+        type=Path,
+        help="VS sequence dir.",
+    )
+
+    parser.add_argument(
+        "-t",
+        type=int,
+        help="Frame idx",
+    )
+
+    parser.add_argument(
+        "--vs-t",
+        type=int,
+        help="VS Frame idx",
+    )
+
     return parser
 
 
@@ -300,14 +401,26 @@ def main() -> int:
     if not args.input_dir.is_dir():
         parser.error(f"Input directory does not exist: {args.input_dir}")
 
+    if args.action == 4:
+        output_dir = args.output_dir
+        output_dir.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        for _p in output_dir.glob("*.png"):
+            _p.unlink()
+
+        vs_dir = args.vs_dir if args.vs_dir else args.input_dir
+        t = args.t if args.t else 1
+        vs_t = args.vs_t if args.vs_t else t
+
+        return analyse_sequences([args.input_dir, vs_dir], output_dir, [t, vs_t], args.k)
+
     output_dir = args.output_dir #/ "check" / args.input_dir.name
     output_dir.mkdir(
         parents=True,
         exist_ok=True,
     )
-
-    # for _p in output_dir.glob("*.csv"):
-    #     _p.unlink()
 
     lf = d.load_data(args.input_dir)
     if lf is None:

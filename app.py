@@ -694,7 +694,7 @@ def all_fig(
     legent_title = group_title
 
     fig.update_layout(
-        # height=400 * nrows,
+        height=500 * nrows,
         hovermode="x",
         template="plotly_white",
         legend_title=legent_title,
