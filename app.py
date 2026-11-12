@@ -2,7 +2,6 @@
 
 import argparse
 import math
-from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
@@ -15,13 +14,19 @@ from dash import ALL, Input, Output, State, ctx, dcc, html
 from plotly.subplots import make_subplots
 
 from blti import BLTI_K, GAUSSIAN_SCALES
-from common import COL_META, ColMeta, FrameBasic, get_label
+from common import COL_META, ColMeta, get_label
 from data import DELTA_COL, X_COL, Y_COL, SEQ_COLS, METRIC_COLS, load_col_data, load_data, sort_data, to_long, process_data
 
 
-SEQ_COLS.append("resolution")
-ALL_VAR_COLS = [*SEQ_COLS, "frame_idx"]
-FILTER_COLS = SEQ_COLS
+FRAME_COL = "frame_idx"
+RESOLUTION_COL = "resolution"
+BAND_COL = "band_idx"
+STATS_COL = "stats"
+
+SEQ_COLS.append(RESOLUTION_COL)
+ALL_VAR_COLS = [*SEQ_COLS, FRAME_COL]
+
+FILTER_COLS = ALL_VAR_COLS
 FILTER_DEFAULT = {
     # "resolution": ["512"],
     # "dataset_name": ["Head1"],
@@ -33,6 +38,7 @@ FILTER_DEFAULT = {
     # "virtual_samples": [0],
     # "trans_type": ["rot"],
     # "trans_axis": ["y"],
+    # "frame_idx": [1]
 }
 
 FACET_COLS = [*ALL_VAR_COLS, X_COL]
@@ -40,22 +46,16 @@ FACET_DEFAULT = ["lighting_enabled"]
 
 GROUP_COLS = [*ALL_VAR_COLS, X_COL]
 GROUP_DEFAULT = [
-    # "method",
     "virtual_sampling_method",
 ]
 
-X_COLS = ALL_VAR_COLS
+X_COLS = [*ALL_VAR_COLS, BAND_COL]
 X_COL_DEFAULT = ["method"]
-Y_COLS = METRIC_COLS
-Y_COL_DEFAULT = ["blti_0"]
-STATS_COL = "stats"
 
-# BASELINES = {
-#     "method": "lin",
-#     "virtual_sampling_method": "none",
-# }
+METRIC_COL_DEFAULT = METRIC_COLS
 
-COL_META[X_COL] = ColMeta(
+
+COL_META[BAND_COL] = ColMeta(
     label="Band Center Scale (δ in pixels)",
     values={
         k: (f"{np.sqrt(GAUSSIAN_SCALES[k] * GAUSSIAN_SCALES[k + 1]):.2f}")
@@ -83,7 +83,14 @@ STATISTIC_MAX = "max"
 STATISTIC_MIN = "min"
 STATISTIC_PERCENTILE_10 = "p10"
 STATISTIC_PERCENTILE_90 = "p90"
-STATISTIC_MODES = [STATISTIC_MEAN, STATISTIC_MEDIAN, STATISTIC_MAX, STATISTIC_MIN, STATISTIC_PERCENTILE_10, STATISTIC_PERCENTILE_90]
+STATISTIC_MODES = [
+    STATISTIC_MEAN, 
+    STATISTIC_MEDIAN, 
+    STATISTIC_MAX, 
+    STATISTIC_MIN, 
+    STATISTIC_PERCENTILE_10, 
+    STATISTIC_PERCENTILE_90
+]
 
 
 SETTING_COLORS = px.colors.qualitative.Dark24 + px.colors.qualitative.Light24
@@ -139,7 +146,7 @@ def make_layout(
     facet_cols: list[str] | None = None,
     group_cols: list[str] | None = None,
     x_cols: list[str] | None = None,
-    y_cols: list[str] | None = None,
+    metric_cols: list[str] | None = None,
     stats_modes: list[str] | None = None,
     trace_modes: list[str] | None = None,
 ) -> html.Div:
@@ -239,7 +246,7 @@ def make_layout(
                             for group_col in group_cols
                         ],
                         value=GROUP_DEFAULT,
-                        clearable=False,
+                        clearable=True,
                         debounce=True,
                         closeOnSelect=False,
                         multi=True,
@@ -271,7 +278,7 @@ def make_layout(
                             for x_col in x_cols
                         ],
                         value=X_COL_DEFAULT,
-                        clearable=True,
+                        clearable=False,
                         debounce=True,
                         closeOnSelect=False,
                         multi=True,
@@ -285,25 +292,25 @@ def make_layout(
             )
         )
 
-    if y_cols:
+    if metric_cols:
         conf_divs.append(
             html.Div(
                 [
                     html.Label(
-                        "Axis Y: ",
+                        "Metric: ",
                         style={"fontWeight": "bold"},
                     ),
                     dcc.Dropdown(
-                        id="ycol-dropdown",
+                        id="metric-dropdown",
                         options=[
                             {
-                                "label": get_label(y_col),
-                                "value": y_col,
+                                "label": get_label(metric_col),
+                                "value": metric_col,
                             }
-                            for y_col in y_cols
+                            for metric_col in metric_cols
                         ],
-                        value=Y_COL_DEFAULT,
-                        clearable=True,
+                        value=METRIC_COL_DEFAULT,
+                        clearable=False,
                         debounce=True,
                         closeOnSelect=False,
                         multi=True,
@@ -334,8 +341,8 @@ def make_layout(
                             }
                             for s_mode in stats_modes
                         ],
-                        # value=stats_modes[0],
-                        clearable=True,
+                        value=stats_modes[0],
+                        clearable=False,
                         debounce=True,
                         closeOnSelect=False,
                         multi=True,
@@ -348,7 +355,6 @@ def make_layout(
                 }
             )
         )
-
 
     if trace_modes:
         conf_divs.append(
@@ -447,11 +453,11 @@ def make_layout(
 def get_data(
     lf: pl.LazyFrame,
     filters: list[Any],
-    facets: Any,
-    groups: Any,
-    x_cols: Any | None = None,
-    y_cols: Any | None = None,
-    stats: Any | None = None,
+    x_cols: Any,
+    metric_cols: Any,
+    stats: Any,
+    facets: Any | None = None,
+    groups: Any | None = None,
     debug: bool = False,
     is_long: bool = False,
 ) -> pl.LazyFrame:
@@ -461,38 +467,37 @@ def get_data(
         if filter_ipt["value"]
     }
 
-    cols = [*facets, *groups]
-    if x_cols:
-        cols.extend(x_cols)
-    group_by = list(dict.fromkeys(
-        col for col in cols if col in ALL_VAR_COLS
-    ))
+    cols = dict.fromkeys([*(facets or []), *(groups or []), *x_cols])
+    if BAND_COL in cols:
+        del cols[BAND_COL]
+    group_by = list(cols)
 
-    if not y_cols:
-        y_cols = METRIC_COLS
-    if not stats:
-        stats = [STATISTIC_MEAN]
-    aggs = (stats, y_cols)
+    aggs = (stats, metric_cols)
 
     dlf = process_data(
         lf,
         filter_by,
         group_by,
         aggs,
-        stats_col=STATS_COL,
+        # stats_col=STATS_COL,
         use_frame=(x_cols and "frame_idx" in x_cols),
         debug=debug,
     )
-    group_by.append(STATS_COL)
+    # group_by.append(STATS_COL)
 
     if is_long:
         dlf = (
-            to_long(dlf, group_by, "metric")
+            dlf.unpivot(
+                on=metric_cols, index=group_by, variable_name="metric", value_name=Y_COL
+            )
             .with_columns(
-                pl.col("metric").str.split("_").list.last().alias(X_COL),
-            ).drop("metric")
+                pl.col("metric").str.split("_").list.first().alias(STATS_COL),
+                pl.col("metric").str.split("_").list.last().alias(BAND_COL),
+            )
+            .drop("metric")
         )
-        group_by.append(X_COL)
+        group_by.append(STATS_COL)
+        group_by.append(BAND_COL)
         dlf = sort_data(dlf, group_by)
 
     return dlf
@@ -521,7 +526,7 @@ def all_fig(
         else {(): df}
     )
     n_facets = len(facets)
-    ncols = min(2, n_facets)
+    ncols = min(1, n_facets)
     nrows = math.ceil(n_facets / ncols)
 
     is_shared_y = True
@@ -736,50 +741,45 @@ def all_fig(
 
 
 def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> None:
-    @app.callback(
-        Output("main-chart", "figure"),
-        Input(
-            {"type": "filter-dropdown", "column": ALL},
-            "value",
-        ),
-        Input("facet-dropdown", "value"),
-        Input("group-dropdown", "value"),
-        Input("xcol-dropdown", "value"),
-        Input("ycol-dropdown", "value"),
-        Input("smode-dropdown", "value"),
-        Input("tmode-dropdown", "value"),
-    )
-    def update_main_chart(filter_vals, sel_facets, sel_groups, sel_cols, sel_ycols, sel_stats, sel_trace):
-        filters = ctx.inputs_list[0]
-        
-        if not sel_cols:
-            sel_cols = [X_COL]
+    # @app.callback(
+    #     Output("main-chart", "figure"),
+    #     Input(
+    #         {"type": "filter-dropdown", "column": ALL},
+    #         "value",
+    #     ),
+    #     Input("facet-dropdown", "value"),
+    #     Input("group-dropdown", "value"),
+    #     Input("xcol-dropdown", "value"),
+    #     Input("metric-dropdown", "value"),
+    #     Input("smode-dropdown", "value"),
+    #     Input("tmode-dropdown", "value"),
+    # )
+    # def update_main_chart(filter_vals, sel_facets, sel_groups, sel_cols, sel_metrics, sel_stats, sel_trace):
+    #     filters = ctx.inputs_list[0]
 
-        x_exist = any(X_COL in cols for cols in (sel_cols, sel_facets, sel_groups))
+    #     dlf = get_data(
+    #         lf, filters, sel_facets, sel_groups, sel_cols, sel_metrics, sel_stats, debug=debug, is_long=True
+    #     )
 
-        dlf = get_data(
-            lf, filters, sel_facets, sel_groups, sel_cols, sel_ycols, sel_stats, debug=debug, is_long=x_exist
-        )
+    #     if len(sel_cols) > 1:
+    #         x_col = "-".join(sel_cols)
+    #         dlf = dlf.with_columns(pl.concat_str([pl.col(s_col) for s_col in sel_cols], separator="-").alias(x_col)).drop(sel_cols)
+    #     else:
+    #         x_col = sel_cols[0]
 
-        if len(sel_cols) > 1:
-            x_col = "-".join(sel_cols)
-            dlf = dlf.with_columns(pl.concat_str([pl.col(s_col) for s_col in sel_cols], separator="-").alias(x_col)).drop(sel_cols)
-        else:
-            x_col = sel_cols[0]
+    #     if x_exist or (not sel_ycols):
+    #         sel_ycols = [Y_COL]
 
-        if x_exist or (not sel_ycols):
-            sel_ycols = [Y_COL]
+    #     if not sel_stats:
+    #         sel_stats = [STATISTIC_MEAN]
 
-        if not sel_stats:
-            sel_stats = [STATISTIC_MEAN]
+    #     facet_cols = sel_facets
+    #     group_cols = sel_groups
+    #     group_title=" ".join([get_label(col) for col in sel_groups]) if sel_groups else ""
 
-        facet_cols = sel_facets
-        group_cols = sel_groups
-        group_title=" ".join([get_label(col) for col in sel_groups]) if sel_groups else ""
+    #     df = dlf.collect()
 
-        df = dlf.collect()
-
-        return all_fig(df, x_col, sel_ycols, sel_stats, facet_cols, group_cols, group_title=group_title, trace_mode=sel_trace)
+    #     return all_fig(df, x_col, sel_ycols, sel_stats, facet_cols, group_cols, group_title=group_title, trace_mode=sel_trace)
 
     @app.callback(
         Output("download-csv", "data"),
@@ -791,12 +791,12 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         State("facet-dropdown", "value"),
         State("group-dropdown", "value"),
         State("xcol-dropdown", "value"),
-        State("ycol-dropdown", "value"),
+        State("metric-dropdown", "value"),
         State("smode-dropdown", "value"),
         prevent_initial_call=True,
     )
     def download_data(
-        n_clicks, filter_vals, sel_facets, sel_groups, sel_cols, sel_ycols, sel_stats
+        n_clicks, filter_vals, sel_facets, sel_groups, sel_cols, sel_metrics, sel_stats
     ):
         if not n_clicks:
             raise dash.exceptions.PreventUpdate
@@ -806,11 +806,11 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, debug: bool = False) -> 
         lf = get_data(
             lf,
             filters,
-            sel_facets,
-            sel_groups,
             sel_cols,
-            sel_ycols,
+            sel_metrics,
             sel_stats,
+            facets=sel_facets,
+            groups=sel_groups,
             debug=debug
         )
         df = lf.collect()
@@ -835,6 +835,14 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--resolutions",
+        nargs="+",
+        type=int,
+        default=[512, 1024],
+        help="Resolutions to process (e.g. --resolutions 512 1024)",
+    )
+
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable Dash debug mode.",
@@ -848,20 +856,27 @@ def main() -> int:
 
     print("Starting...")
 
-    lf512 = load_data(args.data_dir / "r512").with_columns(pl.lit("512").alias("resolution"))
-    lf1024 = load_data(args.data_dir / "r1024").with_columns(pl.lit("1024").alias("resolution"))
+    lfs = []
 
-    lf = pl.concat([lf512, lf1024])
+    for resolution in args.resolutions:
+        lf = load_data(args.data_dir / f"r{resolution}")
 
-    if lf is None:
+        if lf is not None:
+            lfs.append(
+                lf.with_columns(pl.lit(resolution).alias("resolution"))
+            )
+
+    if not lfs:
         raise FileNotFoundError(f"No parquet or CSV files found in {args.data_dir}")
+
+    lf = pl.concat(lfs)
 
     filter_values = load_col_data(lf, FILTER_COLS)
 
     app = dash.Dash(__name__, title="BLTI Analysis")
 
     app.layout = make_layout(
-        filter_values, FACET_COLS, GROUP_COLS, X_COLS, Y_COLS, STATISTIC_MODES, TRACE_MODES
+        filter_values, FACET_COLS, GROUP_COLS, X_COLS, METRIC_COLS, STATISTIC_MODES, TRACE_MODES
     )
 
     register_callback(app, lf, args.debug)
