@@ -183,7 +183,7 @@ def process_data(
     filters: dict[str, Any],
     group_by: list[str] | None = None,
     aggs: tuple[list[str], list[str]] | None = None,
-    stats_col: str | None = None,
+    select_by: list[str] | None = None,
     use_frame: bool = False,
     debug: bool = False,
 ) -> pl.LazyFrame:
@@ -205,33 +205,38 @@ def process_data(
             )
             print(f"Sequence data: {data_rows} rows, {data_seq} sequences.")
 
-    if group_by:
-        if aggs:
-            if stats_col:
-                flf = (
-                    pl.concat(
-                        [
-                            flf.group_by(group_by).agg(
-                                _agg_expr(agg_type, {agg_col: None for agg_col in aggs[1]})
-                            ).with_columns(
-                                pl.lit(agg_type).alias(stats_col)
-                            )
-                            for agg_type in aggs[0]
-                        ]
-                        
-                    )
-                )
-                group_by.append(stats_col)
-            else:
-                grp_aggs = {agg_type: {agg_col: f"{agg_type}_{agg_col}" for agg_col in aggs[1]} for agg_type in aggs[0] }
-                flf = agg_data(flf, group_by, grp_aggs)
-        else:
-            flf = flf.select(group_by)
+    if group_by and aggs:
+        agg_types, agg_cols = aggs
+        if not isinstance(agg_types, (list, set, tuple)):
+            agg_types = [agg_types]
+        grp_aggs = {agg_type: {agg_col: f"{agg_type}_{agg_col}" for agg_col in agg_cols} for agg_type in agg_types }
+        flf = agg_data(flf, group_by, grp_aggs)
 
-    flf = sort_data(flf, group_by)
+    output_cols = select_by if select_by else group_by
+    if output_cols:
+        flf = flf.select(output_cols)
+    
+    if group_by:
+        flf = sort_data(flf, group_by)
 
     return flf
 
+    # if stats_col:
+    #     flf = (
+    #         pl.concat(
+    #             [
+    #                 flf.group_by(group_by).agg(
+    #                     _agg_expr(agg_type, {agg_col: None for agg_col in aggs[1]})
+    #                 ).with_columns(
+    #                     pl.lit(agg_type).alias(stats_col)
+    #                 )
+    #                 for agg_type in aggs[0]
+    #             ]
+                
+    #         )
+    #     )
+    #     group_by.append(stats_col)
+    # else:
 
 def load_col_data(lf: pl.LazyFrame, cols: list) -> dict[str, list]:
     slf = sort_data(lf, SEQ_COLS)
@@ -433,14 +438,11 @@ def main() -> int:
     }
     plf = process_data(
         lf,
-        filter_by,
-        group_by,
-        debug=args.debug,
-        one_frame=args.frame,
-        baselines=None,
-        use_frame=False,
-        is_long=False,
+        {},
+        group_by=["dataset_name"],
+        select_by=["dataset_name", "blti_1"]
     )
+    print(plf.collect_schema())
 
     return 0
 
