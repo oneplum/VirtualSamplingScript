@@ -38,7 +38,7 @@ from common import DATASET_ORDER, METHOD_ORDER, VIRTUAL_METHOD_ORDER, FrameBasic
 SEQ_COLS = [field.name for field in fields(FrameBasic)]
 METRIC_COLS = [f"blti_{i}" for i in range(BLTI_K)]
 
-X_COL = "band_idx"
+BAND_COL = "band_idx"
 Y_COL = "blti"
 DELTA_COL = "diff"
 
@@ -166,7 +166,7 @@ def agg_data(
 def to_long(
     lf: pl.LazyFrame,
     idx_cols: list = SEQ_COLS,
-    var_col: str = X_COL,
+    var_col: str = BAND_COL,
     val_col: str = Y_COL,
     on_cols: list | None = None,
 ) -> pl.LazyFrame:
@@ -174,8 +174,8 @@ def to_long(
         on=on_cols, index=idx_cols, variable_name=var_col, value_name=val_col
     )
 
-    # if var_col == X_COL:
-    #     llf = llf.with_columns(pl.col(X_COL).str.strip_prefix("blti_").cast(pl.UInt8))
+    # if var_col == BAND_COL:
+    #     llf = llf.with_columns(pl.col(BAND_COL).str.strip_prefix("blti_").cast(pl.UInt8))
 
 
 def process_data(
@@ -207,36 +207,29 @@ def process_data(
 
     if group_by and aggs:
         agg_types, agg_cols = aggs
-        if not isinstance(agg_types, (list, set, tuple)):
-            agg_types = [agg_types]
-        grp_aggs = {agg_type: {agg_col: f"{agg_type}_{agg_col}" for agg_col in agg_cols} for agg_type in agg_types }
-        flf = agg_data(flf, group_by, grp_aggs)
+
+        flf = pl.concat(
+            [
+                flf.group_by(group_by)
+                .agg(
+                    [_agg_expr(agg_type, {agg_col: agg_type}) for agg_type in agg_types]
+                )
+                .with_columns(
+                    pl.lit(int(agg_col.removeprefix("blti_"))).alias(BAND_COL)
+                )
+                for agg_col in agg_cols
+            ]
+        )
 
     output_cols = select_by if select_by else group_by
     if output_cols:
         flf = flf.select(output_cols)
-    
+
     if group_by:
         flf = sort_data(flf, group_by)
 
     return flf
 
-    # if stats_col:
-    #     flf = (
-    #         pl.concat(
-    #             [
-    #                 flf.group_by(group_by).agg(
-    #                     _agg_expr(agg_type, {agg_col: None for agg_col in aggs[1]})
-    #                 ).with_columns(
-    #                     pl.lit(agg_type).alias(stats_col)
-    #                 )
-    #                 for agg_type in aggs[0]
-    #             ]
-                
-    #         )
-    #     )
-    #     group_by.append(stats_col)
-    # else:
 
 def load_col_data(lf: pl.LazyFrame, cols: list) -> dict[str, list]:
     slf = sort_data(lf, SEQ_COLS)
@@ -290,7 +283,12 @@ def show_plot(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
     for group_val, group in groups.items():
         if not group_col:
             group_val = ""
-        ax.plot(group[x_col].to_numpy(), group[y_col].to_numpy(), marker="o", label=group_val)
+        ax.plot(
+            group[x_col].to_numpy(),
+            group[y_col].to_numpy(),
+            marker="o",
+            label=group_val,
+        )
     ax.grid(True, axis="y", alpha=0.25)
     if group_col:
         ax.legend()
@@ -364,7 +362,7 @@ def statistics_data(lf: pl.LazyFrame, path: Path) -> int:
     )
     for _p in output_dir.glob("*.xlsx"):
         _p.unlink()
-    
+
     output = output_dir / "seq.xlsx"
 
     aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
@@ -372,19 +370,55 @@ def statistics_data(lf: pl.LazyFrame, path: Path) -> int:
 
     with xlsxwriter.Workbook(output) as workbook:
         method_cols = ["method", "virtual_sampling_method", "lighting_enabled"]
-        agg_data(slf, method_cols, aggs).collect().write_excel(workbook=workbook, worksheet="all")
-        
-        cols = ["dataset_name", "level", "trans_type", "trans_axis", "lighting_enabled", "method", "virtual_sampling_method"]
-        agg_data(slf, cols, aggs).collect().write_excel(workbook=workbook, worksheet="var")
+        agg_data(slf, method_cols, aggs).collect().write_excel(
+            workbook=workbook, worksheet="all"
+        )
 
-        ds_cols = ["dataset_name", "level", "lighting_enabled", "method", "virtual_sampling_method"]
-        agg_data(slf, ds_cols, aggs).collect().write_excel(workbook=workbook, worksheet="ds")
+        cols = [
+            "dataset_name",
+            "level",
+            "trans_type",
+            "trans_axis",
+            "lighting_enabled",
+            "method",
+            "virtual_sampling_method",
+        ]
+        agg_data(slf, cols, aggs).collect().write_excel(
+            workbook=workbook, worksheet="var"
+        )
 
-        trans_cols = ["trans_type", "trans_axis", "lighting_enabled", "method", "virtual_sampling_method"]
-        agg_data(slf, trans_cols, aggs).collect().write_excel(workbook=workbook, worksheet="trans")
+        ds_cols = [
+            "dataset_name",
+            "level",
+            "lighting_enabled",
+            "method",
+            "virtual_sampling_method",
+        ]
+        agg_data(slf, ds_cols, aggs).collect().write_excel(
+            workbook=workbook, worksheet="ds"
+        )
 
-        samples_cols = ["true_samples", "virtual_samples", "lighting_enabled", "method", "virtual_sampling_method"]
-        agg_data(slf, samples_cols, aggs).collect().write_excel(workbook=workbook, worksheet="samples")
+        trans_cols = [
+            "trans_type",
+            "trans_axis",
+            "lighting_enabled",
+            "method",
+            "virtual_sampling_method",
+        ]
+        agg_data(slf, trans_cols, aggs).collect().write_excel(
+            workbook=workbook, worksheet="trans"
+        )
+
+        samples_cols = [
+            "true_samples",
+            "virtual_samples",
+            "lighting_enabled",
+            "method",
+            "virtual_sampling_method",
+        ]
+        agg_data(slf, samples_cols, aggs).collect().write_excel(
+            workbook=workbook, worksheet="samples"
+        )
 
     return 0
 
@@ -425,7 +459,7 @@ def main() -> int:
         "virtual_samples": 0,
         "trans_type": "trans",
         "trans_axis": "y",
-        "frame_idx": 8
+        "frame_idx": 8,
     }
 
     group_by = [
@@ -437,10 +471,7 @@ def main() -> int:
         "virtual_sampling_method": "none",
     }
     plf = process_data(
-        lf,
-        {},
-        group_by=["dataset_name"],
-        select_by=["dataset_name", "blti_1"]
+        lf, {}, group_by=["dataset_name"], select_by=["dataset_name", "blti_1"]
     )
     print(plf.collect_schema())
 

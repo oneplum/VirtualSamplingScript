@@ -15,14 +15,21 @@ from plotly.subplots import make_subplots
 
 from blti import BLTI_K, GAUSSIAN_SCALES
 from common import COL_META, ColMeta, get_label
-from data import DELTA_COL, X_COL, Y_COL, SEQ_COLS, METRIC_COLS, load_col_data, load_data, sort_data, to_long, process_data
-
-BAND_COL = "band_idx"
-STATS_COL = "stats"
+from data import (
+    BAND_COL,
+    DELTA_COL,
+    METRIC_COLS,
+    SEQ_COLS,
+    Y_COL,
+    load_col_data,
+    load_data,
+    process_data,
+    sort_data,
+)
 
 SEQ_COLS.append("resolution")
 FRAME_COLS = [*SEQ_COLS, "frame_idx"]
-ALL_VAR_COLS = [*FRAME_COLS, BAND_COL, STATS_COL]
+ALL_VAR_COLS = [*FRAME_COLS, BAND_COL]
 
 FILTER_COLS = FRAME_COLS
 FILTER_DEFAULT = {
@@ -43,12 +50,12 @@ FACET_COLS = ALL_VAR_COLS
 FACET_DEFAULT = ["lighting_enabled"]
 
 GROUP_COLS = ALL_VAR_COLS
-GROUP_DEFAULT = ["virtual_sampling_method",]
+GROUP_DEFAULT = [
+    "virtual_sampling_method",
+]
 
 X_COLS = ALL_VAR_COLS
 X_COL_DEFAULT = ["method"]
-
-METRIC_COL_DEFAULT = METRIC_COLS
 
 COL_META[BAND_COL] = ColMeta(
     label="Band Center Scale (δ in pixels)",
@@ -69,7 +76,7 @@ TRACE_MODES = [
     TRACE_MODE_LOLLIPOP,
     # TRACE_MODE_LINE,
     TRACE_MODE_LINE_MARKER,
-    TRACE_MODE_FILL
+    TRACE_MODE_FILL,
 ]
 
 STATISTIC_MEAN = "mean"
@@ -79,12 +86,12 @@ STATISTIC_MIN = "min"
 STATISTIC_PERCENTILE_10 = "p10"
 STATISTIC_PERCENTILE_90 = "p90"
 STATISTIC_MODES = [
-    STATISTIC_MEAN, 
-    STATISTIC_MEDIAN, 
-    STATISTIC_MAX, 
-    STATISTIC_MIN, 
-    STATISTIC_PERCENTILE_10, 
-    STATISTIC_PERCENTILE_90
+    STATISTIC_MEAN,
+    STATISTIC_MEDIAN,
+    STATISTIC_MAX,
+    STATISTIC_MIN,
+    STATISTIC_PERCENTILE_10,
+    STATISTIC_PERCENTILE_90,
 ]
 
 SETTING_COLORS = px.colors.qualitative.Dark24 + px.colors.qualitative.Light24
@@ -335,7 +342,7 @@ def make_layout(
                             }
                             for s_mode in stats_modes
                         ],
-                        value=stats_modes[0],
+                        value=[stats_modes[0]],
                         clearable=True,
                         debounce=True,
                         closeOnSelect=False,
@@ -346,7 +353,7 @@ def make_layout(
                     "minWidth": "0",
                     "flex": "1",
                     "margin": "auto 2px",
-                }
+                },
             )
         )
 
@@ -375,7 +382,7 @@ def make_layout(
                     "minWidth": "0",
                     "flex": "1",
                     "margin": "auto 2px",
-                }
+                },
             )
         )
 
@@ -388,9 +395,7 @@ def make_layout(
                 ),
                 html.Div(
                     [
-                        html.Button(
-                            "Download CSV", id="download-csv-btn"
-                        ),
+                        html.Button("Download CSV", id="download-csv-btn"),
                         dcc.Download(id="download-csv"),
                     ],
                     style={},
@@ -413,7 +418,7 @@ def make_layout(
             },
         )
     )
-            
+
     return html.Div(
         [
             html.H1(
@@ -461,9 +466,8 @@ def get_data(
     }
 
     cols = dict.fromkeys([*(facets or []), *(groups or []), *(x_cols or [])])
-    for syn_col in [BAND_COL, STATS_COL]:
-        if syn_col in cols:
-            del cols[syn_col]
+    if BAND_COL in cols:
+        del cols[BAND_COL]
     group_by = list(cols)
 
     if not metric_cols:
@@ -486,257 +490,14 @@ def get_data(
         debug=debug,
     )
 
-    dlf = (
-        dlf.unpivot(index=group_by, variable_name="metric", value_name=Y_COL)
-        .with_columns(
-            pl.col("metric").str.split("_").list.last().alias(BAND_COL),
-            pl.col("metric").str.split("_").list.first().alias(STATS_COL)
-        )
-        .drop("metric")
-    )
-
-    output_cols = dict.fromkeys([*cols, STATS_COL, BAND_COL])
-    dlf = sort_data(dlf, output_cols)
+    dlf = sort_data(dlf, cols)
 
     return dlf
 
 
-def all_fig(
-    df: pl.DataFrame,
-    x_col: str,
-    y_col: str,
-    stats: list[str],
-    facet_cols: list[str] | None = None,
-    group_cols: list[str] | None = None,
-    group_title: str = "",
-    trace_mode: str = TRACE_MODE_LINE,
-    max_cols: int = 2
-) -> go.Figure:
-    if df.is_empty():
-        return go.Figure().update_layout(title="No data")
-
-    sel_cols = list(dict.fromkeys([x_col, y_col, STATS_COL, *facet_cols, *group_cols]))
-
-    df = df.select(sel_cols)
-
-    facets = (
-        df.partition_by(facet_cols, maintain_order=True, as_dict=True)
-        if facet_cols
-        else {(): df}
-    )
-    n_facets = len(facets)
-    ncols = min(max_cols, n_facets)
-    nrows = math.ceil(n_facets / ncols)
-
-    is_shared_y = True
-
-    fig = make_subplots(
-        rows=nrows,
-        cols=ncols,
-        shared_xaxes=True,
-        shared_yaxes=is_shared_y,
-        subplot_titles=[
-            _label(facet_cols, facet_val) for facet_val, _ in facets.items()
-        ],
-    )
-
-    x_data = list(dict.fromkeys(df[x_col]))
-    x_map = {v: k for k, v in enumerate(x_data)}
-
-    for facet_idx, (facet_val, rows) in enumerate(facets.items()):
-        row = facet_idx // ncols + 1
-        col = facet_idx % ncols + 1
-
-        groups = (
-            rows.partition_by(group_cols, maintain_order=True, as_dict=True)
-            if group_cols
-            else {(): rows}
-        )
-
-        n_groups = len(groups)
-        width = 0.6 / max(1, n_groups)
-
-        is_show_hline = False
-
-        for group_idx, (group_value, data) in enumerate(groups.items()):
-            if data.is_empty():
-                continue
-
-            group_label = _label(group_cols, group_value) if group_cols else ""
-
-            color = SETTING_COLORS[group_idx % len(SETTING_COLORS)]
-
-            if trace_mode == TRACE_MODE_LOLLIPOP:
-                is_show_hline = True
-                x_data = (
-                    np.array([x_map[v] for v in data[x_col]], dtype=float)
-                    + (group_idx - (n_groups - 1) / 2) * width
-                )
-
-                diff = data[y_col].to_numpy()
-                stem_x = []
-                stem_y = []
-                for x, y in zip(x_data, diff):
-                    stem_x.extend([x, x, None])
-                    stem_y.extend([0, y, None])
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=stem_x,
-                        y=stem_y,
-                        mode="lines",
-                        line=dict(width=2, color=color),
-                        showlegend=False,
-                        hoverinfo="skip",
-                        legendgroup=group_label,
-                    ),
-                    row=row,
-                    col=col,
-                )
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=x_data,
-                        y=diff,
-                        mode="markers",
-                        name=group_label,
-                        marker=dict(size=9, color=color),
-                        legendgroup=group_label,
-                        showlegend=(facet_idx == 0),
-                        hovertemplate=(
-                            f"{group_label}"
-                            "<br>"
-                            "BLTI: %{y:.4f}"
-                            "<extra></extra>"
-                        ),
-                    ),
-                    row=row,
-                    col=col,
-                )
-            elif trace_mode == TRACE_MODE_FILL:
-                data = data.sort(x_col)
-
-                c_data = data.filter(pl.col(STATS_COL) == stats[0]).sort(x_col).select([x_col, y_col])
-                x = c_data[x_col].to_list()
-                top = c_data[y_col].to_list()
-                bottom = data.filter(pl.col(STATS_COL) == stats[1]).sort(x_col)[y_col].to_list()
-
-
-                fig.add_trace(
-                    go.Scatter(
-                        x=x + x[::-1],
-                        y=bottom + top[::-1],
-                        fill="toself",
-                        fillcolor="rgba(100, 150, 255, 0.2)",
-                        line={"color": "rgba(0,0,0,0)"},
-                        name=group_label,
-                        legendgroup=group_label,
-                        hoverinfo="skip",
-                        showlegend=(facet_idx == 0),
-                    ),
-                    row=row,
-                    col=col,
-                )
-                for stats_idx, stats_val in enumerate(stats[2:]):
-                    color = SETTING_COLORS[(group_idx + stats_idx) % len(SETTING_COLORS)]
-                    fig.add_trace(
-                        go.Scatter(
-                            x=x,
-                            y=data.filter(pl.col(STATS_COL) == stats_val).sort(x_col)[y_col].to_list(),
-                            mode="lines+markers",
-                            name=group_label,
-                            legendgroup=group_label,
-                            line=dict(color=color),
-                            showlegend=(facet_idx == 0),
-                            hovertemplate=(
-                                f"{group_label}<br>BLTI: %{{y:.4f}}<extra></extra>"
-                            ),
-                        ),
-                        row=row,
-                        col=col,
-                    )
-            else:
-                fig.add_trace(
-                    go.Scatter(
-                        x=data[x_col],
-                        y=data[y_col],
-                        mode=trace_mode,
-                        name=group_label,
-                        legendgroup=group_label,
-                        line=dict(color=color),
-                        showlegend=(facet_idx == 0),
-                        hovertemplate=(
-                            f"{group_label}<br>BLTI: %{{y:.4f}}<extra></extra>"
-                        ),
-                    ),
-                    row=row,
-                    col=col,
-                )
-
-        if not is_shared_y:
-            y_min = rows.select(pl.col(y_col).min()).item()
-            y_max = rows.select(pl.col(y_col).max()).item()
-            padding = max((y_max - y_min) * 0.1, abs(y_max) * 0.01, 0.000001)
-            fig.update_yaxes(range=[y_min - padding, y_max + padding], tickformat=".5f", row=row, col=col)
-
-        if is_show_hline:
-            if "method" in sel_cols and "virtual_sampling_method" in sel_cols:
-                y_b = rows.filter((pl.col("method") == "lin") & (pl.col("virtual_sampling_method") == "none")).select(pl.col(y_col).min()).item()
-            else:
-                y_b = rows.select(pl.col(y_col).min()).item()
-            
-            fig.add_hline(
-                y=y_b,
-                line_width=2,
-                line_color=SETTING_COLORS[0],
-                row=row,
-                col=col,
-            )
-
-    fig.update_xaxes(
-        matches="x",
-        tickmode="array",
-        tickvals=list(x_map.values()),
-        # ticktext=[get_label(x_col, val) for val in x_map],
-        showticklabels=True,
-        ticks="outside",
-        ticklen=5,
-        showline=True,
-        linewidth=1,
-        linecolor="black",
-        title_text=get_label(x_col),
-    )
-
-    fig.update_yaxes(
-        matches="y" if is_shared_y else None,
-        showticklabels=True,
-        ticks="outside",
-        ticklen=5,
-        showline=True,
-        linewidth=1,
-        linecolor="black",
-        title_text=get_label(y_col)
-    )
-
-    legent_title = group_title
-
-    if is_shared_y:
-        y_min = df.select(pl.col(y_col).min()).item()
-        y_max = df.select(pl.col(y_col).max()).item()
-        padding = max((y_max - y_min) * 0.1, abs(y_max) * 0.01, 0.000001)
-        fig.update_yaxes(range=[y_min - padding, y_max + padding], tickformat=".5f")
-
-    fig.update_layout(
-        height=500 * nrows,
-        hovermode="x",
-        template="plotly_white",
-        legend_title=legent_title,
-    )
-
-    return fig
-
-
-def register_callback(app: dash.Dash, lf: pl.LazyFrame, cols: int = 2, debug: bool = False) -> None:
+def register_callback(
+    app: dash.Dash, lf: pl.LazyFrame, cols: int = 2, debug: bool = False
+) -> None:
     @app.callback(
         Output("main-chart", "figure"),
         Input(
@@ -750,7 +511,9 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, cols: int = 2, debug: bo
         Input("smode-dropdown", "value"),
         Input("tmode-dropdown", "value"),
     )
-    def update_main_chart(filter_vals, sel_facets, sel_groups, sel_cols, sel_metrics, sel_stats, sel_trace):
+    def update_main_chart(
+        filter_vals, sel_facets, sel_groups, sel_cols, sel_metrics, sel_stats, sel_trace
+    ):
         filters = ctx.inputs_list[0]
 
         dlf = get_data(
@@ -761,28 +524,43 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, cols: int = 2, debug: bo
             sel_cols,
             sel_metrics,
             sel_stats,
-            debug=debug
+            debug=debug,
         )
 
         if sel_cols:
             if len(sel_cols) > 1:
                 x_col = "-".join(sel_cols)
-                dlf = dlf.with_columns(pl.concat_str([pl.col(s_col) for s_col in sel_cols], separator="-").alias(x_col)).drop(sel_cols)
+                dlf = dlf.with_columns(
+                    pl.concat_str(
+                        [pl.col(s_col) for s_col in sel_cols], separator="-"
+                    ).alias(x_col)
+                ).drop(sel_cols)
             else:
                 x_col = sel_cols[0]
         else:
             x_col = BAND_COL
 
         if not sel_stats:
-            sel_stats = ["blti"]
+            sel_stats = METRIC_COLS
 
         facet_cols = sel_facets
         group_cols = sel_groups
-        group_title=" ".join([get_label(col) for col in sel_groups]) if sel_groups else ""
+        group_title = (
+            " ".join([get_label(col) for col in sel_groups]) if sel_groups else ""
+        )
 
         df = dlf.collect()
 
-        return all_fig(df, x_col, Y_COL, sel_stats, facet_cols, group_cols, group_title=group_title, trace_mode=sel_trace, max_cols=cols)
+        return all_fig(
+            df,
+            x_col,
+            sel_stats,
+            facet_cols,
+            group_cols,
+            group_title=group_title,
+            trace_mode=sel_trace,
+            max_cols=cols,
+        )
 
     @app.callback(
         Output("download-csv", "data"),
@@ -805,7 +583,7 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, cols: int = 2, debug: bo
             raise dash.exceptions.PreventUpdate
 
         filters = ctx.states_list[0]
-        
+
         dlf = get_data(
             lf,
             filters,
@@ -814,7 +592,7 @@ def register_callback(app: dash.Dash, lf: pl.LazyFrame, cols: int = 2, debug: bo
             sel_cols,
             sel_metrics,
             sel_stats,
-            debug=debug
+            debug=debug,
         )
         df = dlf.collect()
 
@@ -872,9 +650,7 @@ def main() -> int:
         lf = load_data(args.data_dir / f"r{resolution}")
 
         if lf is not None:
-            lfs.append(
-                lf.with_columns(pl.lit(resolution).alias("resolution"))
-            )
+            lfs.append(lf.with_columns(pl.lit(resolution).alias("resolution")))
 
     if not lfs:
         raise FileNotFoundError(f"No parquet or CSV files found in {args.data_dir}")
@@ -886,7 +662,13 @@ def main() -> int:
     app = dash.Dash(__name__, title="BLTI Analysis")
 
     app.layout = make_layout(
-        filter_values, FACET_COLS, GROUP_COLS, X_COLS, METRIC_COLS, STATISTIC_MODES, TRACE_MODES
+        filter_values,
+        FACET_COLS,
+        GROUP_COLS,
+        X_COLS,
+        METRIC_COLS,
+        STATISTIC_MODES,
+        TRACE_MODES,
     )
 
     register_callback(app, lf, cols=args.cols, debug=args.debug)
