@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import plotly.colors as pc
@@ -7,16 +8,23 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.subplots import make_subplots
 
-PALETTE = pc.qualitative.Plotly  # hex colours
+from common import COL_META, get_label
+
+PALETTE = pc.qualitative.Plotly
 DASHES = ["solid", "dash", "dot", "dashdot"]
+
+TRACE_MODE_FILL = "fill"
+TRACE_MODE_LINE = "lines"
+TRACE_MODE_LINE_MARKER = "lines+markers"
+TRACE_MODE_MARKER = "markers"
+TRACE_MODE_LOLLIPOP = "lollipop"
 
 
 @dataclass(frozen=True)
 class Trace:
-    kind: str  # "line" | "lollipop" | "band"
-    y: str | tuple[str, str]  # column, or (lo, hi) for a band
+    y: str | tuple[str, str]
     label: str | None = None
-    mode: str = "lines+markers"  # only used by "line"
+    mode: str = TRACE_MODE_LINE_MARKER
 
 
 def _cols(t: Trace) -> tuple[str, ...]:
@@ -27,10 +35,25 @@ def _label_of(t: Trace) -> str:
     return t.label or (t.y if isinstance(t.y, str) else f"{t.y[0]}–{t.y[1]}")
 
 
+def _find_idx(lst: list[Any], val: Any):
+    return lst.index(val) if val in lst else -1
+
+
 def _key(cols: list[str]) -> pl.Expr:
     if not cols:
         return pl.lit("")
-    return pl.concat_str([pl.col(c).cast(pl.Utf8) for c in cols], separator=" | ")
+
+    expressions = []
+
+    for col in cols:
+        expr = pl.col(col)
+
+        if col in COL_META and COL_META[col].values:
+            expr = expr.replace(COL_META[col].values, default=expr)
+
+        expressions.append(expr.cast(pl.String))
+
+    return pl.concat_str(expressions, separator=" | ")
 
 
 def _rgba(hex_color: str, alpha: float) -> str:
@@ -49,11 +72,10 @@ def _stems(x: np.ndarray, y: np.ndarray):
 
 def all_fig(
     df: pl.DataFrame,
-    x_col: str,
+    x_cols: list[str],
     traces: list[Trace],
     facet_cols: list[str] | None = None,
     group_cols: list[str] | None = None,
-    group_title: str = "",
     max_cols: int = 2,
     shared_y: bool = True,
     gl: bool = False,  # Scattergl for very large point counts
@@ -62,19 +84,31 @@ def all_fig(
     if df.is_empty():
         return go.Figure().update_layout(title="No data")
 
+    df = df.with_row_index("_id")
+
     facet_cols, group_cols = list(facet_cols or []), list(group_cols or [])
     ycols = list(dict.fromkeys(c for t in traces for c in _cols(t)))
 
-    # ---- 1. prepare everything in Polars --------------------------------
-    x_map = {v: i for i, v in enumerate(df[x_col].unique().sort())}
+    x_keys = (
+        df.select(x_cols)
+        .unique(maintain_order=True)
+        .with_columns(
+            _x=pl.int_range(pl.len(), dtype=pl.Int32),
+            _xlabel=_key(x_cols),
+        )
+    )
+    x_ticks = dict(zip(x_keys["_x"].to_list(), x_keys["_xlabel"].to_list()))
+
     df = (
-        df.select(list(dict.fromkeys([x_col, *ycols, *facet_cols, *group_cols])))
+        df.select(
+            list(dict.fromkeys(["_id", *x_cols, *ycols, *facet_cols, *group_cols]))
+        )
         .with_columns(
             _f=_key(facet_cols),
             _g=_key(group_cols),
-            _x=pl.col(x_col).replace_strict(x_map, return_dtype=pl.Int32),
         )
-        .sort(["_g", "_x"], maintain_order=True)
+        .join(x_keys.select([*x_cols, "_x"]), on=x_cols, how="left")
+        .sort("_id")
     )
     groups = df["_g"].unique(maintain_order=True).to_list()
     n_groups = len(groups)
@@ -101,10 +135,16 @@ def all_fig(
         seen.add(key)
         return True
 
-    # ---- 2. draw --------------------------------------------------------
+    show_hline = False
+
     for fi, (fkey, fdf) in enumerate(facets.items()):
         r, c = fi // ncols + 1, fi % ncols + 1
-        by_g = {k[0]: v for k, v in fdf.partition_by("_g", as_dict=True).items()}
+        by_g = {
+            k[0]: v
+            for k, v in fdf.partition_by(
+                "_g", maintain_order=True, as_dict=True
+            ).items()
+        }
 
         for gi, g in enumerate(groups):
             gdf = by_g.get(g)
@@ -121,7 +161,61 @@ def all_fig(
                 dash = DASHES[ti % len(DASHES)]
                 add = lambda tr: fig.add_trace(tr, row=r, col=c)
 
-                if t.kind == "line":
+                if t.mode == TRACE_MODE_FILL:
+                    lo, hi = t.y
+                    add(
+                        Scatter(  # lower edge, invisible, anchor for tonexty
+                            x=x,
+                            y=Y[lo],
+                            mode=TRACE_MODE_LINE,
+                            line=dict(width=0),
+                            legendgroup=name,
+                            showlegend=False,
+                            hoverinfo="skip",
+                        )
+                    )
+                    add(
+                        Scatter(
+                            x=x,
+                            y=Y[hi],
+                            mode=TRACE_MODE_LINE,
+                            line=dict(width=0),
+                            fill="tonexty",
+                            fillcolor=_rgba(color, 0.2),
+                            name=name,
+                            legendgroup=name,
+                            showlegend=legend(name),
+                            hoverinfo="skip",
+                        )
+                    )
+                elif t.mode == TRACE_MODE_LOLLIPOP:
+                    show_hline = True
+                    xp = x + (gi - (n_groups - 1) / 2) * dodge_w
+                    sx, sy = _stems(xp, Y[t.y])
+                    add(
+                        Scatter(
+                            x=sx,
+                            y=sy,
+                            mode=TRACE_MODE_LINE,
+                            line=dict(width=2, color=color),
+                            legendgroup=name,
+                            showlegend=False,
+                            hoverinfo="skip",
+                        )
+                    )
+                    add(
+                        Scatter(
+                            x=xp,
+                            y=Y[t.y],
+                            mode=TRACE_MODE_MARKER,
+                            marker=dict(size=9, color=color),
+                            name=name,
+                            legendgroup=name,
+                            showlegend=legend(name),
+                            hovertemplate=f"{name}<br>%{{y:.4f}}<extra></extra>",
+                        )
+                    )
+                else:
                     add(
                         Scatter(
                             x=x,
@@ -136,76 +230,32 @@ def all_fig(
                         )
                     )
 
-                elif t.kind == "band":
-                    lo, hi = t.y
-                    add(
-                        Scatter(  # lower edge, invisible, anchor for tonexty
-                            x=x,
-                            y=Y[lo],
-                            mode="lines",
-                            line=dict(width=0),
-                            legendgroup=name,
-                            showlegend=False,
-                            hoverinfo="skip",
-                        )
-                    )
-                    add(
-                        Scatter(
-                            x=x,
-                            y=Y[hi],
-                            mode="lines",
-                            line=dict(width=0),
-                            fill="tonexty",
-                            fillcolor=_rgba(color, 0.2),
-                            name=name,
-                            legendgroup=name,
-                            showlegend=legend(name),
-                            hoverinfo="skip",
-                        )
-                    )
+        if show_hline:
+            bres = fdf.get_column(ycols[0])
+            bval = bres[0] if len(bres) > 0 else None
+            if bval:
+                fig.add_hline(
+                    y=bval,
+                    line_width=1,
+                    line_color="black",
+                    line_dash="dash",
+                    row=r,
+                    col=c,
+                )
 
-                elif t.kind == "lollipop":
-                    xp = x + (gi - (n_groups - 1) / 2) * dodge_w
-                    sx, sy = _stems(xp, Y[t.y])
-                    add(
-                        Scatter(
-                            x=sx,
-                            y=sy,
-                            mode="lines",
-                            line=dict(width=2, color=color),
-                            legendgroup=name,
-                            showlegend=False,
-                            hoverinfo="skip",
-                        )
-                    )
-                    add(
-                        Scatter(
-                            x=xp,
-                            y=Y[t.y],
-                            mode="markers",
-                            marker=dict(size=9, color=color),
-                            name=name,
-                            legendgroup=name,
-                            showlegend=legend(name),
-                            hovertemplate=f"{name}<br>%{{y:.4f}}<extra></extra>",
-                        )
-                    )
-                else:
-                    raise ValueError(f"unknown trace kind: {t.kind!r}")
-
-    # ---- 3. axes / layout -----------------------------------------------
     fig.update_xaxes(
         matches="x",
         tickmode="array",
-        tickvals=list(x_map.values()),
-        ticktext=[str(v) for v in x_map],
+        tickvals=list(x_ticks.keys()),
+        ticktext=list(x_ticks.values()),
+        # tickangle=-45,
         showticklabels=True,
         ticks="outside",
         ticklen=5,
         showline=True,
         linewidth=1,
         linecolor="black",
-        title_text=x_col,
+        title_text=" | ".join([get_label(x_col) for x_col in x_cols]),
     )
     fig.update_yaxes(
         matches="y" if shared_y else None,
@@ -215,7 +265,7 @@ def all_fig(
         showline=True,
         linewidth=1,
         linecolor="black",
-        title_text=ycols[0] if len(ycols) == 1 else "value",
+        title_text=get_label("blti"),
         tickformat=".5f",
     )
 
@@ -223,9 +273,9 @@ def all_fig(
     arr = arr[np.isfinite(arr)]
     if arr.size:
         lo, hi = float(arr.min()), float(arr.max())
-        if any(t.kind == "lollipop" for t in traces):
-            lo, hi = min(lo, 0.0), max(hi, 0.0)
-            fig.update_yaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black")
+        # if any(t.mode == TRACE_MODE_LOLLIPOP for t in traces):
+        # lo, hi = min(lo, 0.0), max(hi, 0.0)
+        # fig.update_yaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black")
         pad = max((hi - lo) * 0.1, abs(hi) * 0.01, 1e-6)
         if shared_y:
             fig.update_yaxes(range=[lo - pad, hi + pad])
@@ -234,6 +284,8 @@ def all_fig(
         height=row_height * nrows,
         hovermode="x",
         template="plotly_white",
-        legend_title=group_title,
+        legend_title=" | ".join([get_label(group_col) for group_col in group_cols])
+        if group_cols
+        else None,
     )
     return fig

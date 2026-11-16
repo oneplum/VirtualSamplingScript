@@ -42,15 +42,23 @@ BAND_COL = "band_idx"
 Y_COL = "blti"
 DELTA_COL = "diff"
 
+STATISTIC_MEAN = "mean"
+STATISTIC_MEDIAN = "median"
+STATISTIC_MAX = "max"
+STATISTIC_MIN = "min"
+STATISTIC_PERCENTILE_10 = "p10"
+STATISTIC_PERCENTILE_90 = "p90"
+STATISTIC_PERCENTILE_99 = "p99"
+STATISTIC_PERCENTILE_999 = "p999"
 AGG_EXPRS = {
-    "max": lambda expr: expr.max(),
-    "min": lambda expr: expr.min(),
-    "mean": lambda expr: expr.mean(),
-    "median": lambda expr: expr.median(),
-    "p10": lambda expr: expr.quantile(0.10),
-    "p90": lambda expr: expr.quantile(0.90),
-    "p99": lambda expr: expr.quantile(0.99),
-    "p999": lambda expr: expr.quantile(0.999),
+    STATISTIC_MAX: lambda expr: expr.max(),
+    STATISTIC_MIN: lambda expr: expr.min(),
+    STATISTIC_MEAN: lambda expr: expr.mean(),
+    STATISTIC_MEDIAN: lambda expr: expr.median(),
+    STATISTIC_PERCENTILE_10: lambda expr: expr.quantile(0.10),
+    STATISTIC_PERCENTILE_90: lambda expr: expr.quantile(0.90),
+    STATISTIC_PERCENTILE_99: lambda expr: expr.quantile(0.99),
+    STATISTIC_PERCENTILE_999: lambda expr: expr.quantile(0.999),
 }
 
 COL_ORDERS = {
@@ -210,20 +218,20 @@ def process_data(
 
         flf = pl.concat(
             [
-                flf.group_by(group_by)
-                .agg(
-                    [_agg_expr(agg_type, {agg_col: agg_type}) for agg_type in agg_types]
-                )
-                .with_columns(
+                agg_data(
+                    flf,
+                    group_by,
+                    {agg_type: {agg_col: agg_type} for agg_type in agg_types},
+                ).with_columns(
                     pl.lit(int(agg_col.removeprefix("blti_"))).alias(BAND_COL)
                 )
                 for agg_col in agg_cols
             ]
         )
+        group_by.append(BAND_COL)
 
-    output_cols = select_by if select_by else group_by
-    if output_cols:
-        flf = flf.select(output_cols)
+    if select_by:
+        flf = flf.select(select_by)
 
     if group_by:
         flf = sort_data(flf, group_by)

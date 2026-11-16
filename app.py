@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
 
 import argparse
-import math
 from pathlib import Path
 from typing import Any
 
 import dash
 import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
 import polars as pl
 from dash import ALL, Input, Output, State, ctx, dcc, html
-from plotly.subplots import make_subplots
 
 from blti import BLTI_K, GAUSSIAN_SCALES
 from common import COL_META, ColMeta, get_label
@@ -20,11 +16,25 @@ from data import (
     DELTA_COL,
     METRIC_COLS,
     SEQ_COLS,
+    STATISTIC_MAX,
+    STATISTIC_MEAN,
+    STATISTIC_MEDIAN,
+    STATISTIC_MIN,
+    STATISTIC_PERCENTILE_10,
+    STATISTIC_PERCENTILE_90,
     Y_COL,
     load_col_data,
     load_data,
     process_data,
     sort_data,
+)
+from plot import (
+    TRACE_MODE_FILL,
+    TRACE_MODE_LINE,
+    TRACE_MODE_LINE_MARKER,
+    TRACE_MODE_LOLLIPOP,
+    Trace,
+    all_fig,
 )
 
 SEQ_COLS.append("resolution")
@@ -50,9 +60,7 @@ FACET_COLS = ALL_VAR_COLS
 FACET_DEFAULT = ["lighting_enabled"]
 
 GROUP_COLS = ALL_VAR_COLS
-GROUP_DEFAULT = [
-    "virtual_sampling_method",
-]
+GROUP_DEFAULT = ["virtual_sampling_method"]
 
 X_COLS = ALL_VAR_COLS
 X_COL_DEFAULT = ["method"]
@@ -67,24 +75,12 @@ COL_META[BAND_COL] = ColMeta(
 COL_META[Y_COL] = ColMeta(label="BLTI")
 COL_META[DELTA_COL] = ColMeta(label="ΔBLTI to Linear")
 
-TRACE_MODE_FILL = "fill"
-TRACE_MODE_LINE = "lines"
-TRACE_MODE_LINE_MARKER = "lines+markers"
-TRACE_MODE_MARKER = "markers"
-TRACE_MODE_LOLLIPOP = "lollipop"
 TRACE_MODES = [
     TRACE_MODE_LOLLIPOP,
-    # TRACE_MODE_LINE,
     TRACE_MODE_LINE_MARKER,
     TRACE_MODE_FILL,
 ]
 
-STATISTIC_MEAN = "mean"
-STATISTIC_MEDIAN = "median"
-STATISTIC_MAX = "max"
-STATISTIC_MIN = "min"
-STATISTIC_PERCENTILE_10 = "p10"
-STATISTIC_PERCENTILE_90 = "p90"
 STATISTIC_MODES = [
     STATISTIC_MEAN,
     STATISTIC_MEDIAN,
@@ -93,53 +89,6 @@ STATISTIC_MODES = [
     STATISTIC_PERCENTILE_10,
     STATISTIC_PERCENTILE_90,
 ]
-
-SETTING_COLORS = px.colors.qualitative.Dark24 + px.colors.qualitative.Light24
-
-
-def _find_idx(lst: list[Any], val: Any):
-    return lst.index(val) if val in lst else -1
-
-
-def _label(col_names: list[str], col_values: list[Any] | tuple[Any, ...]):
-    labels = []
-
-    vmethod_idx = _find_idx(col_names, "virtual_sampling_method")
-
-    if len(col_names) == 1 and vmethod_idx == 0:
-        return get_label("virtual_sampling_method", col_values[vmethod_idx])
-
-    for col, val in zip(col_names, col_values):
-        if col == "level" and val == 0:
-            continue
-
-        if col == "virtual_sampling_method":
-            if str(val).lower() == "none":
-                continue
-            else:
-                vs = _find_idx(col_names, "virtual_samples")
-                if vs >= 0:
-                    labels.append(
-                        f"{col_values[vs]} Virtual {get_label(col, val)} Samples"
-                    )
-                    continue
-
-        if (
-            col == "true_samples"
-            and vmethod_idx >= 0
-            and str(col_values[vmethod_idx]).lower() != "none"
-        ):
-            continue
-
-        if col == "virtual_samples" and (val == 0 or vmethod_idx >= 0):
-            continue
-
-        if col in COL_META:
-            labels.append(get_label(col, val))
-        else:
-            labels.append(val)
-
-    return ", ".join(map(str, labels))
 
 
 def make_layout(
@@ -458,17 +407,15 @@ def get_data(
     metric_cols: Any,
     stats: Any,
     debug: bool = False,
-) -> pl.LazyFrame:
+) -> pl.DataFrame:
     filter_by = {
         filter_ipt["id"]["column"]: filter_ipt["value"]
         for filter_ipt in filters
         if filter_ipt["value"]
     }
 
-    cols = dict.fromkeys([*(facets or []), *(groups or []), *(x_cols or [])])
-    if BAND_COL in cols:
-        del cols[BAND_COL]
-    group_by = list(cols)
+    cols = list(dict.fromkeys([*(facets or []), *(groups or []), *(x_cols or [])]))
+    group_by = [col for col in cols if col != BAND_COL]
 
     if not metric_cols:
         metric_cols = METRIC_COLS
@@ -489,10 +436,12 @@ def get_data(
         use_frame=("frame_idx" in group_by),
         debug=debug,
     )
+    if (not BAND_COL in cols) and (BAND_COL in dlf.collect_schema().names()):
+        cols.append(BAND_COL)
 
     dlf = sort_data(dlf, cols)
 
-    return dlf
+    return dlf.collect()
 
 
 def register_callback(
@@ -516,7 +465,7 @@ def register_callback(
     ):
         filters = ctx.inputs_list[0]
 
-        dlf = get_data(
+        df = get_data(
             lf,
             filters,
             sel_facets,
@@ -527,38 +476,27 @@ def register_callback(
             debug=debug,
         )
 
-        if sel_cols:
-            if len(sel_cols) > 1:
-                x_col = "-".join(sel_cols)
-                dlf = dlf.with_columns(
-                    pl.concat_str(
-                        [pl.col(s_col) for s_col in sel_cols], separator="-"
-                    ).alias(x_col)
-                ).drop(sel_cols)
-            else:
-                x_col = sel_cols[0]
-        else:
-            x_col = BAND_COL
+        if not sel_cols:
+            sel_cols = [BAND_COL]
 
         if not sel_stats:
             sel_stats = METRIC_COLS
 
-        facet_cols = sel_facets
-        group_cols = sel_groups
-        group_title = (
-            " ".join([get_label(col) for col in sel_groups]) if sel_groups else ""
-        )
-
-        df = dlf.collect()
+        traces = []
+        if sel_trace == TRACE_MODE_FILL:
+            traces.append(Trace((sel_stats[0], sel_stats[1]), mode=TRACE_MODE_FILL))
+            for stat in sel_stats[2:]:
+                traces.append(Trace(stat, mode=TRACE_MODE_LINE))
+        else:
+            for stat in sel_stats:
+                traces.append(Trace(stat, mode=sel_trace))
 
         return all_fig(
             df,
-            x_col,
-            sel_stats,
-            facet_cols,
-            group_cols,
-            group_title=group_title,
-            trace_mode=sel_trace,
+            sel_cols,
+            traces,
+            sel_facets,
+            sel_groups,
             max_cols=cols,
         )
 
@@ -584,7 +522,7 @@ def register_callback(
 
         filters = ctx.states_list[0]
 
-        dlf = get_data(
+        df = get_data(
             lf,
             filters,
             sel_facets,
@@ -594,7 +532,6 @@ def register_callback(
             sel_stats,
             debug=debug,
         )
-        df = dlf.collect()
 
         return {
             "content": df.write_csv(),
