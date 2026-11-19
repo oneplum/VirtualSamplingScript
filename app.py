@@ -15,7 +15,6 @@ from data import (
     BAND_COL,
     DELTA_COL,
     METRIC_COLS,
-    SEQ_COLS,
     STATISTIC_MAX,
     STATISTIC_MEAN,
     STATISTIC_MEDIAN,
@@ -23,6 +22,7 @@ from data import (
     STATISTIC_PERCENTILE_10,
     STATISTIC_PERCENTILE_90,
     Y_COL,
+    exclude_data,
     load_col_data,
     load_data,
     process_data,
@@ -33,15 +33,30 @@ from plot import (
     TRACE_MODE_LINE,
     TRACE_MODE_LINE_MARKER,
     TRACE_MODE_LOLLIPOP,
+    TRACE_MODE_MARKER,
     Trace,
     all_fig,
 )
 
-SEQ_COLS.append("resolution")
-FRAME_COLS = [*SEQ_COLS, "frame_idx"]
-ALL_VAR_COLS = [*FRAME_COLS, BAND_COL]
 
-FILTER_COLS = FRAME_COLS
+def config_global_var():
+    global SEQ_COLS
+    global FRAME_COLS
+    global ALL_VAR_COLS
+    global FILTER_COLS
+    global FACET_COLS
+    global GROUP_COLS
+    global X_COLS
+
+    SEQ_COLS = [col for col in all_cols if col not in ["frame_idx", *METRIC_COLS]]
+    FRAME_COLS = [col for col in all_cols if col not in METRIC_COLS]
+    ALL_VAR_COLS = [*FRAME_COLS, BAND_COL]
+
+    FILTER_COLS = FRAME_COLS
+    FACET_COLS = ALL_VAR_COLS
+    GROUP_COLS = ALL_VAR_COLS
+    X_COLS = ALL_VAR_COLS
+
 FILTER_DEFAULT = {
     # "resolution": ["512"],
     # "dataset_name": ["Head1"],
@@ -55,15 +70,10 @@ FILTER_DEFAULT = {
     # "trans_axis": ["y"],
     # "frame_idx": [1]
 }
-
-FACET_COLS = ALL_VAR_COLS
 FACET_DEFAULT = ["lighting_enabled"]
-
-GROUP_COLS = ALL_VAR_COLS
 GROUP_DEFAULT = ["virtual_sampling_method"]
-
-X_COLS = ALL_VAR_COLS
 X_COL_DEFAULT = ["method"]
+
 
 COL_META[BAND_COL] = ColMeta(
     label="Band Center Scale (δ in pixels)",
@@ -78,6 +88,7 @@ COL_META[DELTA_COL] = ColMeta(label="ΔBLTI to Linear")
 TRACE_MODES = [
     TRACE_MODE_LOLLIPOP,
     TRACE_MODE_LINE_MARKER,
+    TRACE_MODE_MARKER,
     TRACE_MODE_FILL,
 ]
 
@@ -498,6 +509,8 @@ def register_callback(
             sel_facets,
             sel_groups,
             max_cols=cols,
+            row_height=500,
+            shared_y=False,
         )
 
     @app.callback(
@@ -556,7 +569,6 @@ def build_argument_parser() -> argparse.ArgumentParser:
         "--resolutions",
         nargs="+",
         type=int,
-        default=[512, 1024],
         help="Resolutions to process (e.g. --resolutions 512 1024)",
     )
 
@@ -581,18 +593,27 @@ def main() -> int:
 
     print("Starting...")
 
-    lfs = []
+    if args.resolutions:
+        lfs = []
 
-    for resolution in args.resolutions:
-        lf = load_data(args.data_dir / f"r{resolution}")
+        for resolution in args.resolutions:
+            lf = load_data(args.data_dir / f"r{resolution}")
 
-        if lf is not None:
-            lfs.append(lf.with_columns(pl.lit(resolution).alias("resolution")))
+            if lf is not None:
+                lfs.append(lf.with_columns(pl.lit(resolution).alias("resolution")))
 
-    if not lfs:
-        raise FileNotFoundError(f"No parquet or CSV files found in {args.data_dir}")
+        if not lfs:
+            raise FileNotFoundError(f"No parquet or CSV files found in {args.data_dir}")
 
-    lf = pl.concat(lfs)
+        lf = pl.concat(lfs)
+    else:
+        lf = load_data(args.data_dir)
+
+    lf = exclude_data(lf)
+
+    global all_cols
+    all_cols = lf.collect_schema().names()
+    config_global_var()
 
     filter_values = load_col_data(lf, FILTER_COLS)
 

@@ -243,6 +243,14 @@ def all_fig(
                     col=c,
                 )
 
+        if not shared_y:
+            arr = fdf.select(ycols).to_numpy().astype(float)
+            arr = arr[np.isfinite(arr)]
+            if arr.size:
+                lo, hi = float(arr.min()), float(arr.max())
+                pad = max((hi - lo) * 0.1, abs(hi) * 0.01, 1e-6)
+                fig.update_yaxes(range=[lo - pad, hi + pad], row=r, col=c)
+
     fig.update_xaxes(
         matches="x",
         tickmode="array",
@@ -266,18 +274,15 @@ def all_fig(
         linewidth=1,
         linecolor="black",
         title_text=get_label("blti"),
-        tickformat=".5f",
+        tickformat=".4f",
     )
 
-    arr = df.select(ycols).to_numpy().astype(float)
-    arr = arr[np.isfinite(arr)]
-    if arr.size:
-        lo, hi = float(arr.min()), float(arr.max())
-        # if any(t.mode == TRACE_MODE_LOLLIPOP for t in traces):
-        # lo, hi = min(lo, 0.0), max(hi, 0.0)
-        # fig.update_yaxes(zeroline=True, zerolinewidth=1, zerolinecolor="black")
-        pad = max((hi - lo) * 0.1, abs(hi) * 0.01, 1e-6)
-        if shared_y:
+    if shared_y:
+        arr = df.select(ycols).to_numpy().astype(float)
+        arr = arr[np.isfinite(arr)]
+        if arr.size:
+            lo, hi = float(arr.min()), float(arr.max())
+            pad = max((hi - lo) * 0.1, abs(hi) * 0.01, 1e-6)
             fig.update_yaxes(range=[lo - pad, hi + pad])
 
     fig.update_layout(

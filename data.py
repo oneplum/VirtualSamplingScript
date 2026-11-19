@@ -94,6 +94,15 @@ def load_data(path: Path) -> pl.LazyFrame | None:
     return None
 
 
+def exclude_data(lf: pl.LazyFrame) -> pl.LazyFrame:
+    lf = lf.filter(
+        ~(
+            ((pl.col("dataset_name") == "Tree1") & (pl.col("lighting_enabled") == False) & (pl.col("trans_type") == "trans") & pl.col("trans_axis").is_in(["y", "z"])) | 
+            ((pl.col("dataset_name") == "ML2") & (pl.col("lighting_enabled") == False) & (pl.col("trans_type") == "trans") & (pl.col("trans_axis") == "x"))
+        )
+    )
+    return lf
+
 def filter_data(lf: pl.LazyFrame, filters: dict[str, Any]) -> pl.LazyFrame:
     filter_exprs: list[pl.Expr] = []
 
@@ -255,7 +264,7 @@ def load_col_data(lf: pl.LazyFrame, cols: list) -> dict[str, list]:
 
 def build_argument_parser() -> argparse.ArgumentParser:
 
-    parser = argparse.ArgumentParser(description="Compute BLTI for image sequences.")
+    parser = argparse.ArgumentParser(description="BLTI for image sequences.")
 
     parser.add_argument(
         "-d",
