@@ -78,7 +78,8 @@ def all_fig(
     group_cols: list[str] | None = None,
     max_cols: int = 2,
     shared_y: bool = True,
-    gl: bool = False,  # Scattergl for very large point counts
+    baseline: bool = False,
+    gl: bool = False,
     row_height: int = 450,
 ) -> go.Figure:
     if df.is_empty():
@@ -136,6 +137,7 @@ def all_fig(
         return True
 
     show_hline = False
+    arr = []
 
     for fi, (fkey, fdf) in enumerate(facets.items()):
         r, c = fi // ncols + 1, fi % ncols + 1
@@ -146,13 +148,22 @@ def all_fig(
             ).items()
         }
 
+        grp_arr = []
+        bs_vals = by_g.get(groups[0]).select(ycols).to_numpy().copy() if groups and baseline else None
+
         for gi, g in enumerate(groups):
             gdf = by_g.get(g)
             if gdf is None:
                 continue
             color = color_of[g]
             x = gdf["_x"].to_numpy().astype(float)
-            Y = {col: gdf[col].to_numpy().astype(float) for col in ycols}
+
+            Y_vals = gdf.select(ycols).to_numpy().copy()
+            if bs_vals is not None:
+                Y_vals -= bs_vals
+            grp_arr.extend(Y_vals[:, 0])
+
+            Y = dict(zip(ycols, Y_vals.T))
 
             for ti, t in enumerate(traces):
                 name = " | ".join(
@@ -189,7 +200,7 @@ def all_fig(
                         )
                     )
                 elif t.mode == TRACE_MODE_LOLLIPOP:
-                    show_hline = True
+                    # show_hline = True
                     xp = x + (gi - (n_groups - 1) / 2) * dodge_w
                     sx, sy = _stems(xp, Y[t.y])
                     add(
@@ -212,7 +223,7 @@ def all_fig(
                             name=name,
                             legendgroup=name,
                             showlegend=legend(name),
-                            hovertemplate=f"{name}<br>%{{y:.4f}}<extra></extra>",
+                            hovertemplate=f"{name}<br>%{{y:.6f}}<extra></extra>",
                         )
                     )
                 else:
@@ -226,13 +237,12 @@ def all_fig(
                             line=dict(color=color, dash=dash),
                             marker=dict(color=color),
                             showlegend=legend(name),
-                            hovertemplate=f"{name}<br>%{{y:.4f}}<extra></extra>",
+                            hovertemplate=f"{name}<br>%{{y:.6f}}<extra></extra>",
                         )
                     )
 
         if show_hline:
-            bres = fdf.get_column(ycols[0])
-            bval = bres[0] if len(bres) > 0 else None
+            bval = grp_arr[0] if len(grp_arr) > 0 else None
             if bval:
                 fig.add_hline(
                     y=bval,
@@ -243,13 +253,12 @@ def all_fig(
                     col=c,
                 )
 
-        if not shared_y:
-            arr = fdf.select(ycols).to_numpy().astype(float)
-            arr = arr[np.isfinite(arr)]
-            if arr.size:
-                lo, hi = float(arr.min()), float(arr.max())
-                pad = max((hi - lo) * 0.1, abs(hi) * 0.01, 1e-6)
-                fig.update_yaxes(range=[lo - pad, hi + pad], row=r, col=c)
+        if shared_y:
+            arr.extend(grp_arr)
+        elif grp_arr:
+            lo, hi = min(grp_arr), max(grp_arr)
+            pad = max((hi - lo) * 0.1, abs(hi) * 0.01, 1e-6)
+            fig.update_yaxes(range=[lo - pad, hi + pad], row=r, col=c)
 
     fig.update_xaxes(
         matches="x",
@@ -273,17 +282,14 @@ def all_fig(
         showline=True,
         linewidth=1,
         linecolor="black",
-        title_text=get_label("blti"),
-        tickformat=".4f",
+        title_text=get_label("blti") if not baseline else get_label("diff"),
+        tickformat=".6f",
     )
 
-    if shared_y:
-        arr = df.select(ycols).to_numpy().astype(float)
-        arr = arr[np.isfinite(arr)]
-        if arr.size:
-            lo, hi = float(arr.min()), float(arr.max())
-            pad = max((hi - lo) * 0.1, abs(hi) * 0.01, 1e-6)
-            fig.update_yaxes(range=[lo - pad, hi + pad])
+    if shared_y and arr:
+        lo, hi = min(arr), max(arr)
+        pad = max((hi - lo) * 0.1, abs(hi) * 0.01, 1e-6)
+        fig.update_yaxes(range=[lo - pad, hi + pad])
 
     fig.update_layout(
         height=row_height * nrows,

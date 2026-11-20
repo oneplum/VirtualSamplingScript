@@ -23,6 +23,7 @@ from data import (
     STATISTIC_PERCENTILE_90,
     Y_COL,
     exclude_data,
+    get_seq_cols,
     load_col_data,
     load_data,
     process_data,
@@ -40,7 +41,6 @@ from plot import (
 
 
 def config_global_var():
-    global SEQ_COLS
     global FRAME_COLS
     global ALL_VAR_COLS
     global FILTER_COLS
@@ -48,7 +48,6 @@ def config_global_var():
     global GROUP_COLS
     global X_COLS
 
-    SEQ_COLS = [col for col in all_cols if col not in ["frame_idx", *METRIC_COLS]]
     FRAME_COLS = [col for col in all_cols if col not in METRIC_COLS]
     ALL_VAR_COLS = [*FRAME_COLS, BAND_COL]
 
@@ -346,6 +345,32 @@ def make_layout(
             )
         )
 
+    
+    conf_divs.append(
+        html.Div(
+            [
+                html.Label(
+                    "Baseline: ",
+                    style={"fontWeight": "bold"},
+                ),
+                dcc.Checklist(
+                    id="baseline-chk",
+                    options=[
+                        {
+                            "label": get_label("baseline"),
+                            "value": True,
+                        }
+                    ]
+                ),
+            ],
+            style={
+                "minWidth": "0",
+                "flex": "1",
+                "margin": "auto 2px",
+            },
+        )
+    )
+    
     conf_divs.append(
         html.Div(
             [
@@ -470,9 +495,10 @@ def register_callback(
         Input("metric-dropdown", "value"),
         Input("smode-dropdown", "value"),
         Input("tmode-dropdown", "value"),
+        Input("baseline-chk", "value")
     )
     def update_main_chart(
-        filter_vals, sel_facets, sel_groups, sel_cols, sel_metrics, sel_stats, sel_trace
+        filter_vals, sel_facets, sel_groups, sel_cols, sel_metrics, sel_stats, sel_trace, sel_baseline
     ):
         filters = ctx.inputs_list[0]
 
@@ -511,6 +537,7 @@ def register_callback(
             max_cols=cols,
             row_height=500,
             shared_y=False,
+            baseline=(sel_baseline[0] if sel_baseline else False)
         )
 
     @app.callback(

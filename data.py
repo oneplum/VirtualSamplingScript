@@ -30,7 +30,6 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import polars as pl
-import xlsxwriter
 
 from blti import BLTI_K
 from common import DATASET_ORDER, METHOD_ORDER, VIRTUAL_METHOD_ORDER, FrameBasic
@@ -68,6 +67,10 @@ COL_ORDERS = {
 }
 
 
+def get_seq_cols(lf: pl.LazyFrame) -> list[str]:
+    return [col for col in lf.collect_schema().names() if col not in ["frame_idx", *METRIC_COLS]]
+
+
 def load_data(path: Path) -> pl.LazyFrame | None:
     if not path.is_dir():
         suffix = path.suffix.lower()
@@ -102,6 +105,7 @@ def exclude_data(lf: pl.LazyFrame) -> pl.LazyFrame:
         )
     )
     return lf
+
 
 def filter_data(lf: pl.LazyFrame, filters: dict[str, Any]) -> pl.LazyFrame:
     filter_exprs: list[pl.Expr] = []
@@ -180,21 +184,6 @@ def agg_data(
     return glf
 
 
-def to_long(
-    lf: pl.LazyFrame,
-    idx_cols: list = SEQ_COLS,
-    var_col: str = BAND_COL,
-    val_col: str = Y_COL,
-    on_cols: list | None = None,
-) -> pl.LazyFrame:
-    return lf.unpivot(
-        on=on_cols, index=idx_cols, variable_name=var_col, value_name=val_col
-    )
-
-    # if var_col == BAND_COL:
-    #     llf = llf.with_columns(pl.col(BAND_COL).str.strip_prefix("blti_").cast(pl.UInt8))
-
-
 def process_data(
     lf: pl.LazyFrame,
     filters: dict[str, Any],
@@ -205,20 +194,19 @@ def process_data(
     debug: bool = False,
 ) -> pl.LazyFrame:
     flf = filter_data(lf, filters)
+    is_frame = "frame_idx" in lf.collect_schema().names()
 
     if debug:
-        data_rows, data_seq = (
-            flf.select([pl.len(), pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
-        )
-        print(f"Filtered data: {data_rows} rows, {data_seq} sequences.")
+        print(f"Filtered data: {flf.select(pl.len()).collect().item()} rows.")
 
-    if not use_frame:
+    if not use_frame and is_frame:
+        seq_cols = get_seq_cols(lf)
         seq_aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
-        flf = agg_data(flf, SEQ_COLS, seq_aggs)
+        flf = agg_data(flf, seq_cols, seq_aggs)
 
         if debug:
             data_rows, data_seq = (
-                flf.select([pl.len(), pl.struct(SEQ_COLS).n_unique()]).collect().row(0)
+                flf.select([pl.len(), pl.struct(seq_cols).n_unique()]).collect().row(0)
             )
             print(f"Sequence data: {data_rows} rows, {data_seq} sequences.")
 
@@ -249,7 +237,7 @@ def process_data(
 
 
 def load_col_data(lf: pl.LazyFrame, cols: list) -> dict[str, list]:
-    slf = sort_data(lf, SEQ_COLS)
+    slf = sort_data(lf, cols)
 
     return {
         col: (
@@ -367,75 +355,6 @@ def show_stem(lf: pl.LazyFrame, x_col, y_col, group_col: str | None = None):
 def merge_parquet_file(path: Path) -> int:
     lf = pl.scan_parquet(path / "Tree1-*.parquet")
     lf.collect().write_parquet("part-00007.parquet")
-
-    return 0
-
-
-def statistics_data(lf: pl.LazyFrame, path: Path) -> int:
-    output_dir = Path.cwd() / "data" / "blti" / "xlsx" / path.name
-    output_dir.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-    for _p in output_dir.glob("*.xlsx"):
-        _p.unlink()
-
-    output = output_dir / "seq.xlsx"
-
-    aggs = {"mean": {metric_col: None for metric_col in METRIC_COLS}}
-    slf = agg_data(lf, SEQ_COLS, aggs)
-
-    with xlsxwriter.Workbook(output) as workbook:
-        method_cols = ["method", "virtual_sampling_method", "lighting_enabled"]
-        agg_data(slf, method_cols, aggs).collect().write_excel(
-            workbook=workbook, worksheet="all"
-        )
-
-        cols = [
-            "dataset_name",
-            "level",
-            "trans_type",
-            "trans_axis",
-            "lighting_enabled",
-            "method",
-            "virtual_sampling_method",
-        ]
-        agg_data(slf, cols, aggs).collect().write_excel(
-            workbook=workbook, worksheet="var"
-        )
-
-        ds_cols = [
-            "dataset_name",
-            "level",
-            "lighting_enabled",
-            "method",
-            "virtual_sampling_method",
-        ]
-        agg_data(slf, ds_cols, aggs).collect().write_excel(
-            workbook=workbook, worksheet="ds"
-        )
-
-        trans_cols = [
-            "trans_type",
-            "trans_axis",
-            "lighting_enabled",
-            "method",
-            "virtual_sampling_method",
-        ]
-        agg_data(slf, trans_cols, aggs).collect().write_excel(
-            workbook=workbook, worksheet="trans"
-        )
-
-        samples_cols = [
-            "true_samples",
-            "virtual_samples",
-            "lighting_enabled",
-            "method",
-            "virtual_sampling_method",
-        ]
-        agg_data(slf, samples_cols, aggs).collect().write_excel(
-            workbook=workbook, worksheet="samples"
-        )
 
     return 0
 
