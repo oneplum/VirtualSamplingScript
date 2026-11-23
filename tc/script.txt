@@ -1,0 +1,33 @@
+Step1
+all scene level1 unlit all motion lin-1-n-0 3frames
+# py .\make_temporal_gsc.py stage0 
+output: stage0.gsc stage0_manifest.csv
+
+Step2
+# Racaster.exe --script .\stage0.gsc
+
+Step3
+# py .\calibrate.py ..\Recaster\out_stage0\ .\stage0_manifest.csv --out .\calibrate.json
+if outside 0.5-6 px: re-render stage0 with another --cal-rot/--cal-trans
+
+Step4
+3 scenes: Head1 Tree1 ML1 
+level1 unlit 
+motions: roty transx transz
+lin-1-n-0 lin-15-n-0 
+base: lin
+dup: 1
+100frame
+speeds: 2px 1px 0.5px 0.25px
+#py .\make_temporal_gsc.py stage1 --calib .\calibration.json
+
+Step5
+#python .\check_gsc.py .\stage1.gsc .\stage1_manifest.csv
+
+
+# 1. 
+python make_temporal_gsc.py stage0
+python calibrate.py out_stage0 stage0_manifest.csv
+python make_temporal_gsc.py stage1 --calib calibration.json
+python check_gsc.py stage1.gsc stage1_manifest.csv
+python make_temporal_gsc.py stage2 --calib calibration.json --speed <selected-speed>

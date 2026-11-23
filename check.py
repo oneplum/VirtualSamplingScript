@@ -428,17 +428,23 @@ def split_parquet_file(lf: d.pl.LazyFrame, output_dir: Path) -> int:
     return 0
 
 
-def save_seq_parquet(lf: d.pl.LazyFrame, output_dir: Path, resolution: int = 512)  -> int:
+def save_seq_parquet(lf: d.pl.LazyFrame, output_dir: Path, seq_cols: list[str] = d.SEQ_COLS, resolution: int = 512, output_format: str = "parquet")  -> int:
     print(lf.select(d.pl.len()).collect().item())
 
-    slf = lf.group_by(d.SEQ_COLS).agg([d.pl.col(metric_col).mean() for metric_col in d.METRIC_COLS]).with_columns(d.pl.lit(resolution).alias("resolution"))
+    slf = lf.group_by(seq_cols).agg([d.pl.col(metric_col).mean() for metric_col in d.METRIC_COLS]).with_columns(d.pl.lit(resolution).alias("resolution"))
 
     print(slf.select(d.pl.len()).collect().item())
-    nfile= len(list(output_dir.glob("*.parquet")))
+    
+    nfile= len(list(output_dir.glob(f"*.{output_format}")))
     print(nfile)
-    slf.collect().write_parquet(
-        output_dir / f"part-{nfile}.parquet"
-    )
+    if output_format == "csv":
+        slf.collect().write_csv(
+            output_dir / f"part-{nfile}.csv"
+        )
+    else:
+        slf.collect().write_parquet(
+            output_dir / f"part-{nfile}.parquet"
+        )
 
     return 0
 # def diff_data(path: Path) -> int:
@@ -527,6 +533,13 @@ def build_argument_parser() -> argparse.ArgumentParser:
         help="resolution",
     )
 
+    parser.add_argument(
+        "--output-format",
+        choices=("parquet", "csv"),
+        default="parquet",
+        help="Output file format.",
+    )
+
     return parser
 
 
@@ -560,12 +573,39 @@ def main() -> int:
         exist_ok=True,
     )
 
-    lf = d.load_data(args.input_dir)
+    if args.action == 6:
+        lfs = []
+        s0_map = {
+            "b1": 1.0,
+            "b0p5": 0.5
+        }
+        speed_map = {
+            "s2": 2.0, "s1": 1.0, "s0p5": 0.5, "s0p25": 0.25, "s0p5_dup": 0.5
+        }
+
+        for s0 in ["b1", "b0p5"]:
+            for speed in ["s2", "s1", "s0p5", "s0p25", "s0p5_dup"]:
+                lf = d.load_data(args.input_dir / f"{s0}" / f"out_stage1_{speed}.csv")
+
+                if lf is not None:
+                    lfs.append(lf.with_columns(
+                        d.pl.lit(speed_map.get(speed, speed)).alias("speed"),
+                        d.pl.lit(s0_map.get(s0, s0)).alias("sigma0")
+                        )
+                    )
+
+        if not lfs:
+            raise FileNotFoundError(f"No parquet or CSV files found in {args.input_dir}")
+
+        lf = d.pl.concat(lfs)
+    else:
+        lf = d.load_data(args.input_dir)
+
     if lf is None:
         print("No valid data files found.")
         return 1
 
-    lf = d.exclude_data(lf)
+    # lf = d.exclude_data(lf)
 
     global all_cols
     all_cols = lf.collect_schema().names()
@@ -582,7 +622,9 @@ def main() -> int:
         case 3:
             split_parquet_file(lf, output_dir)
         case 5:
-            save_seq_parquet(lf, output_dir, args.resolution)
+            save_seq_parquet(lf, output_dir, seq_cols, args.resolution, output_format=args.output_format)
+        case 6:
+            save_seq_parquet(lf, output_dir, seq_cols, args.resolution, output_format=args.output_format)
         case _:
             check_data(lf, output_dir)
 
