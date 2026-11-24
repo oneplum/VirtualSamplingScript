@@ -132,7 +132,6 @@ repeat 9 as volume
             if $analytic
                 set method analytic
                 set m 78
-                screenshot $volname-baseline-analytic-$r.$fileformat
             else
                 if $x == 0
                     set method lin
