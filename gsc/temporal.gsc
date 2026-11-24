@@ -77,50 +77,50 @@ repeat 9 as volume
         setbackground 0 0 1 1
     endif
     log Volume $volume
-    repeat 2 as l
-        setLevel $l
-        log Level $l
-        repeat 2 as lighting
-            if $lighting == 0
-                log unlit pass
-                set lit n
-            else
-                log lighting pass
-                set lit l
-                settranslation 0 0 0
-                resetrotation
-                setspecularcolor 0.8 0.8 0.8
-                if $volume == 0
-                    settfparams false 0.097 0.156
-                endif
-                if $volume == 1
-                    settfparams false 0.218 0.142
-                endif
-                if $volume == 2
-                    #http://www.cgvis.de/vs/?dataset=7&method=59&const=0&ortho=0&vs=10&sr=1&tfType=2&tfStart=0.02&tfWidth=0.003&alpha=0.9900000095367432&level=0&transform=-0.202214763_0.978688002_-0.0357658304_0_-0.202166244_-0.00598103832_0.979332626_0_0.958247483_0.205267921_0.199067056_0_0_0_0_1%7E0_0_1.50000024&tfEncoding=UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
-                    settfcode UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
-                endif
-                if $volume == 3
-                    # http://www.cgvis.de/vs/?dataset=7&method=7&const=0&ortho=0&vs=10&sr=0&tfType=2&tfStart=0.02&tfWidth=0.003&alpha=0.9900000095367432&level=0&transform=-0.969087362_0.246711731_0.00148320443_0_-0.012833355_-0.0564099029_0.998324871_0_0.246383488_0.96744591_0.0578331985_0_0_0_0_1%7E0_0_0.800000072&tfEncoding=UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
-                    settfcode UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
-                endif
-                if $volume == 4
-                    settfparams true 0.075 0.01
-                endif
-                if $volume == 5
-                    # http://www.cgvis.de/vs/?dataset=4&method=46&const=0&ortho=1&vs=1&sr=0&tfType=0&tfStart=0.213&tfWidth=0.005&alpha=0.9900000095367432&level=0&transform=0.803756475_-0.590385795_-0.0736123994_0_0.464429945_0.699930787_-0.542587698_0_0.371860117_0.401920915_0.836767256_0_0_0_0_1%7E0_0_0.700000048
-                    settfparams false 0.213 0.005
-                endif
-                if $volume == 6
-                    settfcode UkxFRgAEAAAAAAAANwAV__8AGgAL__8AOAAZ_30ACv8hAAMgAR0BEgEBCgABATYADf9EAA
-                endif
-                if $volume == 7
-                    settfparams true 0.397 0.006
-                endif
-                if $volume == 8
-                    settfparams false 0.397 0.006
-                endif
+    repeat 2 as lighting
+        if $lighting == 0
+            log unlit pass
+            set lit n
+        else
+            log lighting pass
+            set lit l
+            settranslation 0 0 0
+            resetrotation
+            setspecularcolor 0.8 0.8 0.8
+            if $volume == 0
+                settfparams false 0.097 0.156
             endif
+            if $volume == 1
+                settfparams false 0.218 0.142
+            endif
+            if $volume == 2
+                #http://www.cgvis.de/vs/?dataset=7&method=59&const=0&ortho=0&vs=10&sr=1&tfType=2&tfStart=0.02&tfWidth=0.003&alpha=0.9900000095367432&level=0&transform=-0.202214763_0.978688002_-0.0357658304_0_-0.202166244_-0.00598103832_0.979332626_0_0.958247483_0.205267921_0.199067056_0_0_0_0_1%7E0_0_1.50000024&tfEncoding=UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
+                settfcode UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
+            endif
+            if $volume == 3
+                # http://www.cgvis.de/vs/?dataset=7&method=7&const=0&ortho=0&vs=10&sr=0&tfType=2&tfStart=0.02&tfWidth=0.003&alpha=0.9900000095367432&level=0&transform=-0.969087362_0.246711731_0.00148320443_0_-0.012833355_-0.0564099029_0.998324871_0_0.246383488_0.96744591_0.0578331985_0_0_0_0_1%7E0_0_0.800000072&tfEncoding=UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
+                settfcode UkxFRgAEAAAAAAAAARUDGAQaAx0CIAUjAiYBKAErAi4BMQE0ATYBOQE8AkEBRAFHAkoBTQJPAVIBVQJYAVsBXQFgAWMCZgJpAWsBbgFxAnQBdgF5AXwBggGEAYoBjQGQAZIBlQKYAZsBnQKgAaMBpgGpAasBuQK_AcQBygHNAdAB0gHVAdgB2wLeAeAB4wHpAesB7gHxAfQB9___of8CUgRPB00FTwJSBFUGWANbAl0CYAFjAmYCaQJrA3ENdAJ2AnkDfAJ_AoIBhAGHBIoCjQGQApIBlQKYAZsCnQGgAaMCpgKrAbEBtAG3AbkBvALCAccBzQHQAdUB2AHbAd4C4AHjAeYB6QLrAe4B8QH3AfyJ_wQA_P8
+            endif
+            if $volume == 4
+                settfparams true 0.075 0.01
+            endif
+            if $volume == 5
+                # http://www.cgvis.de/vs/?dataset=4&method=46&const=0&ortho=1&vs=1&sr=0&tfType=0&tfStart=0.213&tfWidth=0.005&alpha=0.9900000095367432&level=0&transform=0.803756475_-0.590385795_-0.0736123994_0_0.464429945_0.699930787_-0.542587698_0_0.371860117_0.401920915_0.836767256_0_0_0_0_1%7E0_0_0.700000048
+                settfparams false 0.213 0.005
+            endif
+            if $volume == 6
+                settfcode UkxFRgAEAAAAAAAANwAV__8AGgAL__8AOAAZ_30ACv8hAAMgAR0BEgEBCgABATYADf9EAA
+            endif
+            if $volume == 7
+                settfparams true 0.397 0.006
+            endif
+            if $volume == 8
+                settfparams false 0.397 0.006
+            endif
+        endif
+        repeat 2 as l
+            setLevel $l
+            log Level $l
             repeat 6 as x
                 if $x == 0
                     set method lin
