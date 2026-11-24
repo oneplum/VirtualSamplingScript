@@ -132,11 +132,11 @@ def compute_sequence(path: Path) -> tuple[str, list[dict[str, Any]], str]:
             path.glob(PATTERN), key=lambda x: int(x.stem.rsplit("-", 1)[-1])
         )
 
-        if len(frame_paths) < 3:
+        if len(frame_paths) != 100:
             return (
                 path.name,
                 [],
-                f"Expected at least 3 images, found {len(frame_paths)}.",
+                f"Expected 100 images, found {len(frame_paths)}.",
             )
 
         frame_bltis = compute_blti(frame_paths)

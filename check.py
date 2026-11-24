@@ -534,8 +534,8 @@ def main() -> int:
     parser = build_argument_parser()
     args = parser.parse_args()
 
-    if not args.input_dir.is_dir():
-        parser.error(f"Input directory does not exist: {args.input_dir}")
+    # if not args.input_dir.is_dir():
+    #     parser.error(f"Input directory does not exist: {args.input_dir}")
 
     if args.action == 4:
         output_dir = args.output_dir
@@ -565,7 +565,7 @@ def main() -> int:
         print("No valid data files found.")
         return 1
 
-    lf = d.exclude_data(lf)
+    # lf = d.exclude_data(lf)
 
     global all_cols
     all_cols = lf.collect_schema().names()

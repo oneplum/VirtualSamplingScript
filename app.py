@@ -636,7 +636,7 @@ def main() -> int:
     else:
         lf = load_data(args.data_dir)
 
-    lf = exclude_data(lf)
+    # lf = exclude_data(lf)
 
     global all_cols
     all_cols = lf.collect_schema().names()
