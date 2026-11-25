@@ -57,16 +57,16 @@ def config_global_var():
     X_COLS = ALL_VAR_COLS
 
 FILTER_DEFAULT = {
-    # "resolution": ["512"],
+    "resolution": ["512"],
     # "dataset_name": ["Head1"],
-    # "level": [0],
-    # "lighting_enabled": [False],
+    "level": [1],
+    "lighting_enabled": [False],
     # "method": ["lin"],
-    # "true_samples": [15],
-    # "virtual_sampling_method": ["none"],
-    # "virtual_samples": [0],
-    # "trans_type": ["rot"],
-    # "trans_axis": ["y"],
+    "true_samples": [10],
+    "virtual_sampling_method": ["none"],
+    "virtual_samples": [0],
+    "trans_type": ["rot"],
+    "trans_axis": ["y"],
     # "frame_idx": [1]
 }
 FACET_DEFAULT = ["lighting_enabled"]
@@ -535,7 +535,7 @@ def register_callback(
             sel_facets,
             sel_groups,
             max_cols=cols,
-            row_height=500,
+            row_height=550,
             shared_y=False,
             baseline=(sel_baseline[0] if sel_baseline else False)
         )

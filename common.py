@@ -112,7 +112,7 @@ class QualityImage:
 
 COL_META = {
     "dataset_name": ColMeta(
-        label="Dataset", values=DATASET_LABELS, order=DATASET_ORDER
+        label="Dataset", order=DATASET_ORDER #, values=DATASET_LABELS
     ),
     "level": ColMeta(
         label="Downsamples",
