@@ -9,6 +9,8 @@ import numpy as np
 import polars as pl
 from PIL import Image
 
+from parse_performance_log import ParsedLabel
+
 OutputType = Literal["csv", "parquet"]
 
 METHOD_LABELS = {
@@ -88,6 +90,24 @@ class ColMeta:
         if self.order:
             return [val for val in self.order if val in curr]
         return sorted(curr)
+
+
+@dataclass
+class QualityImage:
+    path: Path
+    label: str
+    dataset_name: str
+    dataset_label: str
+    image_kind: str
+    level: int | None
+    method: str
+    method_label: str
+    lighting_enabled: bool
+    rotation: int
+    baseline_variant: str | None
+    true_samples: int | None
+    virtual_sampling_method: str | None
+    virtual_samples: int | None
 
 
 COL_META = {
@@ -217,3 +237,95 @@ def write_to_file(
         write_parquet(output_path, rows)
     else:
         write_csv(output_path, rows)
+
+
+def parse_measurement_label(path: Path) -> tuple[ParsedLabel | None, str | None]:
+    frame_basic = parse_name(path.name)
+    if frame_basic.trans_type != "rot" or frame_basic.trans_axis != "y":
+        return None, "exclude other motion except rotation x"
+
+    image_kind = ""
+    if frame_basic.level == 0:
+        if frame_basic.virtual_sampling_method == "none":
+            baseline_source = "analytic" if frame_basic.method == "analytic" else "discrete"
+            if frame_basic.true_samples == 8:
+                baseline_variant = "legacy_baseline"
+                image_kind = f"{baseline_variant}_{baseline_source}"
+            else:
+                baseline_variant = f"baseline{frame_basic.true_samples}"
+                image_kind = "baseline_reference"
+        else:
+            return None, "not include quality process"
+    else:
+        image_kind = "virtual_sampled" if frame_basic.virtual_sampling_method == "n" else "downsampled"
+        baseline_source = None
+        baseline_variant = None
+
+    return ParsedLabel(
+        dataset_name=frame_basic.dataset_name,
+        image_kind=image_kind,
+        level=frame_basic.level,
+        method=frame_basic.method,
+        lighting_enabled=frame_basic.lighting_enabled,
+        virtual_sampling_method=frame_basic.virtual_sampling_method if frame_basic.virtual_sampling_method != "none" else None,
+        virtual_samples=frame_basic.virtual_samples if frame_basic.virtual_samples > 0 else None,
+        rotation=0,
+        baseline_source=baseline_source,
+        baseline_variant=baseline_variant,
+        true_samples=frame_basic.true_samples if frame_basic.virtual_sampling_method != "none" else None,
+    ), None
+
+
+def parse_roation(label: str) -> tuple[int | None, str | None]:
+    if not label.endswith(".png"):
+        return None, "label does not end with .png"
+
+    parts = label[:-4].split("-")
+    return parts[-1], None
+
+
+def load_quality_images(images_dir: Path, *, warning_stream) -> list[QualityImage]:
+    
+    images: list[QualityImage] = []
+
+    images_dir = sorted(path for path in images_dir.iterdir() if path.is_dir())
+    total = len(images_dir)
+    print(f"Found {total} folders.")
+
+    for image_dir in images_dir:
+        parsed_label, error = parse_measurement_label(image_dir)
+        if error is not None or parsed_label is None:
+            warn(
+                f"skipping unrecognized quality image name {image_dir.name!r} ({error})",
+                stream=warning_stream,
+            )
+            continue
+
+        for path in sorted(image_dir.glob("*.png")):
+            rotation, error = parse_roation(path.name)
+            if error is not None or rotation is None:
+                warn(
+                    f"skipping rotation error {path.name!r} ({error})",
+                    stream=warning_stream,
+                )
+                continue
+            
+            images.append(
+                QualityImage(
+                    path=path,
+                    label=path.name,
+                    dataset_name=parsed_label.dataset_name,
+                    dataset_label=DATASET_LABELS.get(parsed_label.dataset_name, parsed_label.dataset_name),
+                    image_kind=parsed_label.image_kind,
+                    level=parsed_label.level,
+                    method=parsed_label.method,
+                    method_label=METHOD_LABELS.get(parsed_label.method, parsed_label.method),
+                    lighting_enabled=parsed_label.lighting_enabled,
+                    rotation=rotation,
+                    baseline_variant=parsed_label.baseline_variant,
+                    true_samples=parsed_label.true_samples,
+                    virtual_sampling_method=parsed_label.virtual_sampling_method,
+                    virtual_samples=parsed_label.virtual_samples,
+                )
+            )
+    return images

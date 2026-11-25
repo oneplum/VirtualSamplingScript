@@ -547,8 +547,8 @@ def main() -> int:
     parser = build_argument_parser()
     args = parser.parse_args()
 
-    if not args.input_dir.is_dir():
-        parser.error(f"Input directory does not exist: {args.input_dir}")
+    # if not args.input_dir.is_dir():
+    #     parser.error(f"Input directory does not exist: {args.input_dir}")
 
     if args.action == 4:
         output_dir = args.output_dir
