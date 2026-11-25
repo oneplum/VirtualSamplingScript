@@ -5,6 +5,9 @@ setinteraction 0
 logfile temporal.log
 clearlog
 resize 512 512
+set frames 100
+set rotInc 0.3
+set transInc 0.001
 
 # volname-level-method-lighting-rate-vmethod-subdiv-transforms-axis[-r]
 repeat 9 as volume
@@ -118,7 +121,8 @@ repeat 9 as volume
                 settfparams false 0.397 0.006
             endif
         endif
-        repeat 2 as l
+        repeat 1 as l
+            set l 1
             setLevel $l
             log Level $l
             repeat 6 as x
@@ -187,7 +191,7 @@ repeat 9 as volume
                             log Subdiv $subdiv
                         endif
                         set dirname $volname-$l-$method-$lit-$rate-$vmethod-$subdiv
-                        repeat 6 as transform
+                        repeat 5 as transform
                             settranslation 0 0 0
                             resetrotation
                             if $volume == 0
@@ -232,58 +236,54 @@ repeat 9 as volume
                                 set seqname $dirname-rot-x
                                 log $seqname
                                 setdir $outputdir/$seqname
-                                repeat 100 as r
+                                repeat $frames as r
                                     screenshot $seqname-$r.$fileformat
-                                    addrotationx 3.6
+                                    addrotationx $rotInc
                                 endrepeat
                             endif
                             if $transform == 1
                                 set seqname $dirname-rot-y
                                 log $seqname
                                 setdir $outputdir/$seqname
-                                repeat 100 as r
+                                repeat $frames as r
                                     screenshot $seqname-$r.$fileformat
-                                    addrotationy 3.6
+                                    addrotationy $rotInc
                                 endrepeat
                             endif
                             if $transform == 2
                                 set seqname $dirname-rot-diag
                                 log $seqname
                                 setdir $outputdir/$seqname
-                                repeat 100 as r
+                                repeat $frames as r
                                     screenshot $seqname-$r.$fileformat
-                                    addrotationaxis 0.57735027 0.57735027 0.57735027 3.6
+                                    addrotationaxis 0.57735027 0.57735027 0.57735027 $rotInc
                                 endrepeat
                             endif
                             if $transform == 3
                                 set seqname $dirname-trans-x
                                 log $seqname
                                 setdir $outputdir/$seqname
-                                addtranslation -0.5 0 0
-                                repeat 100 as r
+                                repeat $frames as r
                                     screenshot $seqname-$r.$fileformat
-                                    addtranslation 0.01 0 0
+                                    addtranslation $transInc 0 0
                                 endrepeat
                             endif
                             if $transform == 4
                                 set seqname $dirname-trans-y
                                 log $seqname
                                 setdir $outputdir/$seqname
-                                addtranslation 0 0.5 0
-                                repeat 100 as r
+                                repeat $frames as r
                                     screenshot $seqname-$r.$fileformat
-                                    addtranslation 0 -0.01 0
+                                    addtranslation 0 $transInc 0
                                 endrepeat
                             endif
                             if $transform == 5
                                 set seqname $dirname-trans-z
                                 log $seqname
                                 setdir $outputdir/$seqname
-                                setuseortho false
-                                addtranslation 0 0 0.5
-                                repeat 100 as r
+                                repeat $frames as r
                                     screenshot $seqname-$r.$fileformat
-                                    addtranslation 0 0 -0.01
+                                    addtranslation 0 0 $transInc
                                 endrepeat
                             endif
                             setdir $outputdir
