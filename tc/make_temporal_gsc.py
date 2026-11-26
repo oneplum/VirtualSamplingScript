@@ -81,10 +81,10 @@ CFGSETS = {'cal': CAL, 'ladder': LADDER, 'pilot': PILOT, 'core': CORE, 'full': F
 STAGES = {
     'stage0': dict(scenes='all', motions=list(MOTIONS), lighting='unlit', levels=[1], cfgset='cal',
                    refs='none', speeds=[None], frames=3, dup=False),
-    'stage1': dict(scenes=['Head1', 'Tree1', 'ML1'], motions=['roty', 'transx', 'transz'], lighting='unlit',
+    'stage1': dict(scenes='all', motions=list(MOTIONS), lighting='unlit',
                    levels=[1], cfgset='ladder', refs='lin', speeds=[2, 1, 0.5, 0.25], frames=100, dup=True),
     'stage2': dict(scenes=['Head1', 'Tree1', 'ML1'], motions=['roty', 'rotd', 'transx', 'transz'],
-                   lighting='both', levels=[1, 2], cfgset='pilot', refs='per_method', speeds=[0.5],
+                   lighting='both', levels=[1], cfgset='pilot', refs='per_method', speeds=[0.5],
                    frames=100, dup=False),
     'stage3': dict(scenes='all', motions=['roty', 'rotd', 'transx', 'transz'], lighting='both',
                    levels=[1, 2], cfgset='core', refs='per_method', speeds=[0.5], frames=100, dup=False),

@@ -6,8 +6,8 @@ logfile temporal.log
 clearlog
 resize 512 512
 set frames 100
-set rotInc 0.3
-set transInc 0.001
+set rotInc 3.6
+set transInc 0.01
 
 repeat 9 as volume
     settranslation 0 0 0
@@ -79,7 +79,7 @@ repeat 9 as volume
         setbackground 0 0 1 1
     endif
     log Volume $volume
-    repeat 2 as lighting
+    repeat 1 as lighting
         if $lighting == 0
             log unlit pass
             set lit n
@@ -129,7 +129,7 @@ repeat 9 as volume
         if $analytic
             set mcount 1
         else
-            set mcount 6
+            set mcount 1
         endif
         repeat $mcount as x
             if $analytic
@@ -159,7 +159,8 @@ repeat 9 as volume
             setmethod $m
             log Method $m
             set dirname $volname-0-$method-$lit-8-n-0
-            repeat 5 as transform
+            repeat 1 as transform
+                set transform 4
                 settranslation 0 0 0
                 resetrotation
                 if $volume == 0
@@ -206,7 +207,7 @@ repeat 9 as volume
                     setdir $outputdir/$seqname
                     repeat $frames as r
                         screenshot $seqname-$r.$fileformat
-                        addrotationx $rotInc
+                        addrotationx -$rotInc
                     endrepeat
                 endif
                 if $transform == 1
@@ -224,7 +225,7 @@ repeat 9 as volume
                     setdir $outputdir/$seqname
                     repeat $frames as r
                         screenshot $seqname-$r.$fileformat
-                        addrotationaxis 0.57735027 0.57735027 0.57735027 $rotInc
+                        addrotationaxis 0.57735027 0.57735027 0.57735027 -$rotInc
                     endrepeat
                 endif
                 if $transform == 3
@@ -240,6 +241,7 @@ repeat 9 as volume
                     set seqname $dirname-trans-y
                     log $seqname
                     setdir $outputdir/$seqname
+                    addtranslation 0 -0.5 0
                     repeat $frames as r
                         screenshot $seqname-$r.$fileformat
                         addtranslation 0 $transInc 0

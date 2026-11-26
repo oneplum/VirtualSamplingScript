@@ -386,19 +386,21 @@ def main() -> int:
     'trans_axis': ['diag', 'x', 'y', 'z']
     """
     filter_by = {
-        "dataset_name": "Tree1",
-        "level": 0,
+        # "dataset_name": "Tree1",
+        "level": 1,
         "lighting_enabled": False,
-        "method": "lin",
+        # "method": "lin",
         "true_samples": 10,
         "virtual_sampling_method": "none",
         "virtual_samples": 0,
         "trans_type": "trans",
         "trans_axis": "y",
-        "frame_idx": 8,
+        # "frame_idx": 8,
+        "resolution": 512
     }
 
     group_by = [
+        "Dataset",
         "method",
         "virtual_sampling_method",
     ]
@@ -406,10 +408,15 @@ def main() -> int:
         "method": "lin",
         "virtual_sampling_method": "none",
     }
+    metric_col = "blti_0"
     plf = process_data(
-        lf, {}, group_by=["dataset_name"], select_by=["dataset_name", "blti_1"]
+        lf, filter_by, group_by=None, select_by=["dataset_name", "method", metric_col]
     )
-    print(plf.collect_schema())
+    plf = plf.group_by("dataset_name").agg(
+        (pl.col(metric_col) < plf.filter(pl.col("method") == "lin").select(metric_col)).alias("group1"),
+        (pl.col(metric_col) > plf.filter(pl.col("method") == "lin").select(metric_col)).alias("group2")
+    )
+    print(plf.collect())
 
     return 0
 
