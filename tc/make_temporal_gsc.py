@@ -68,7 +68,7 @@ MOTIONS = {
 # ---- configuration sets: (method, rate, vmethod, subdiv); vmethod 'n' = none ---------------------------
 CAL = [('lin', 1, 'n', 0)]
 LADDER = [('lin', 1, 'n', 0), ('lin', 15, 'n', 0)]
-PILOT = ([('lin', r, 'n', 0) for r in (1, 5, 15)]
+PILOT = ([('lin', r, 'n', 0) for r in (1, 10, 15)]
          + [(m, 1, 'n', 0) for m in ('cr', 'quadB', 'quadBf', 'cubicB', 'cubicBf')]
          + [('cr', 1, vm, 6) for vm in ('linvs', 'hermvs', 'monhermvs')])
 CORE = ([('lin', r, 'n', 0) for r in (1, 5, 10, 15)]
@@ -83,7 +83,7 @@ STAGES = {
                    refs='none', speeds=[None], frames=3, dup=False),
     'stage1': dict(scenes='all', motions=list(MOTIONS), lighting='unlit',
                    levels=[1], cfgset='ladder', refs='lin', speeds=[2, 1, 0.5, 0.25], frames=100, dup=True),
-    'stage2': dict(scenes=['Head1', 'Tree1', 'ML1'], motions=['roty', 'rotd', 'transx', 'transz'],
+    'stage2': dict(scenes=['Head1', 'Tree1', 'ML1'], motions=['rotx', 'roty', 'rotd', 'transx', 'transz'],
                    lighting='both', levels=[1], cfgset='pilot', refs='per_method', speeds=[0.5],
                    frames=100, dup=False),
     'stage3': dict(scenes='all', motions=['roty', 'rotd', 'transx', 'transz'], lighting='both',

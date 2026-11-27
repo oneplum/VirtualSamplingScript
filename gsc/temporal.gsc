@@ -1,19 +1,12 @@
-set outputdir output
-setdir $outputdir
 set fileformat png
 setinteraction 0
-logfile temporal.log
-clearlog
 resize 512 512
 set frames 1000
 set rotInc 0.36
 set transInc -0.001
 
 # volname-level-method-lighting-rate-vmethod-subdiv-transforms-axis[-r]
-repeat 8 as volume
-    if $volume == 6
-        set volume $volume + 1
-    endif
+repeat 9 as volume
     settranslation 0 0 0
     resetrotation
     if $volume == 0
@@ -100,6 +93,14 @@ repeat 8 as volume
         set useortho false
         setuseortho false
     endif
+    set outputdir $volume
+    setdir $outputdir
+    logfile temporal.log
+    clearlog
+    log resolution 512
+    log rot step $rotInc
+    log trans step $transInc
+    log frames $frames
     log Volume $volume
     repeat 2 as lighting
         if $lighting == 0
@@ -190,18 +191,20 @@ repeat 8 as volume
                     endif
                     setmethod $m
                     log Method $m
-                    repeat 3 as rateIter
+                    repeat 4 as rateIter
                         if $y == 0
                             if $rateIter == 0
                                 set rate 1
                             endif
                             if $rateIter == 1
-                                set rate 10
+                                set rate 5
                             endif
                             if $rateIter == 2
+                                set rate 10
+                            endif
+                            if $rateIter == 3
                                 set rate 15
                             endif
-                            log aaa
                             setrate $rate
                             log Rate $rate
                             set subdiv 0
@@ -210,14 +213,21 @@ repeat 8 as volume
                             setrate $rate
                             if $rateIter == 0
                                 set subdiv 1
-                            else
-                                set subdiv $rateIter * 6
+                            endif
+                            if $rateIter == 1
+                                set subdiv 3
+                            endif
+                            if $rateIter == 2
+                                set subdiv 6
+                            endif
+                            if $rateIter == 3
+                                set subdiv 12
                             endif
                             setsubdiv $subdiv
                             log Subdiv $subdiv
                         endif
                         set dirname $volname-$l-$method-$lit-$rate-$vmethod-$subdiv
-                        repeat 6 as transform
+                        repeat 3 as transform
                             settranslation 0 0 0
                             resetrotation
                             if $volume == 0
